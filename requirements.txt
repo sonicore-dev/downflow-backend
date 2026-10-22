@@ -1,0 +1,8 @@
+yt-dlp[default,curl-cffi]
+websockets
+uvicorn
+fastapi
+fake-useragent
+pydantic
+termux-playwright
+requests

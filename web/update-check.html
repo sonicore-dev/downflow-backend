@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>Version check · Downflow</title><link rel="stylesheet" href="/ui.css">
+<style>
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}.row:last-of-type{border:0}
+.v{font:600 14px var(--mono);text-align:right;overflow-wrap:anywhere}.req{color:var(--bad)}.no{color:var(--ok)}
+.err{color:#fecdd3;background:#2b1519;border:1px solid #6b2630;padding:14px 16px;border-radius:10px;font-size:14px}
+</style></head><body>
+<!--HEADER-->
+<main class="page narrow">
+<div class="ph"><h1>Version check</h1><p>Backend and app update information.</p></div>
+<div class="card"><div class="head"><b>Server status</b><span class="chip"><span class="dot" id="d"></span><span id="s">Checking</span></span></div>
+<div id="c" class="muted">Loading…</div>
+<button class="btn ghost" style="width:100%;margin-top:20px" id="b">Check again</button></div>
+</main>
+<!--FOOTER-->
+<script>
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+async function check(){d.className="dot";s.textContent="Checking";c.textContent="Loading…";
+try{const r=await fetch("/api/v1/check-updates/",{cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);const j=await r.json();if(j.status!=="success")throw Error("Invalid response");const x=j.data;
+d.className="dot ok";s.textContent="Online";
+c.innerHTML='<div class="row"><span class="muted">Version</span><span class="v">'+esc(x.version_name)+'</span></div><div class="row"><span class="muted">Version code</span><span class="v">'+esc(x.version_code)+'</span></div><div class="row"><span class="muted">Force update</span><span class="v '+(x.force_update?"req":"no")+'">'+(x.force_update?"Required":"Not required")+'</span></div>'}
+catch(e){d.className="dot bad";s.textContent="Offline";c.innerHTML='<div class="err">Unable to reach the Downflow API.<br>'+esc(e.message)+'</div>'}}
+b.onclick=check;check();
+</script></body></html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>Downflow · Developer Console</title><link rel="stylesheet" href="/ui.css">
+<style>
+.hero{padding:24px 0 8px}
+.hero h1{font-size:clamp(32px,6vw,52px);font-weight:800;letter-spacing:-.03em}
+.hero p{color:var(--muted);font-size:17px;max-width:600px;margin:14px 0 20px}
+.tile{display:flex;flex-direction:column;gap:6px;color:var(--text);transition:border-color .15s,transform .15s}
+.tile:hover{border-color:#34343c;transform:translateY(-2px);text-decoration:none}
+.tile .ico{font-size:22px;line-height:1}.tile b{font-size:16px;margin-top:6px}.tile span{color:var(--muted);font-size:14px}
+</style></head><body>
+<!--HEADER-->
+<main class="page">
+<section class="hero"><span class="chip"><span class="dot" id="d"></span><span id="s">Checking API…</span></span>
+<h1 class="grad" style="margin-top:18px">Downflow developer console</h1>
+<p>Cookie-free media extraction and fast browser downloads. Internal tools for the Downflow backend, maintained by SoniCore.</p></section>
+<div class="sec-title">Tools</div>
+<div class="grid">
+<a class="card tile" href="/download/"><span class="ico">⬇️</span><b>Download tool</b><span>Paste a link, choose quality and format, save the file.</span></a>
+<a class="card tile" href="/admin"><span class="ico">🛠️</span><b>Admin console</b><span>Live logs, metrics, tasks and route tester.</span></a>
+<a class="card tile" href="/docs"><span class="ico">📘</span><b>API docs</b><span>Interactive OpenAPI reference.</span></a>
+<a class="card tile" href="/check-updates"><span class="ico">🔄</span><b>Version check</b><span>App version and update policy.</span></a>
+</div>
+</main>
+<!--FOOTER-->
+<script>
+fetch("/api/v1/health/").then(r=>r.json()).then(j=>{d.className="dot ok";s.textContent="API online · "+new Date(j.data.timestamp).toLocaleTimeString()}).catch(()=>{d.className="dot bad";s.textContent="API unreachable"})
+</script></body></html>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>Sign in · Downflow</title><link rel="stylesheet" href="/ui.css">
+<style>
+.box{width:100%;max-width:400px}
+.logo{width:52px;height:52px;margin:0 0 18px;display:grid;place-items:center;border-radius:15px;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;font-size:24px;font-weight:800}
+.box h1{font-size:24px}.sub{color:var(--muted);font-size:14px;margin:6px 0 24px}
+.f{margin-bottom:16px}.err{color:#fecdd3;background:#2b1519;border:1px solid #6b2630;padding:10px 12px;border-radius:10px;font-size:14px;margin-bottom:16px}
+.note{color:var(--muted);font-size:13px;margin-top:16px;text-align:center}
+</style></head><body>
+<!--HEADER-->
+<main class="page center"><form class="box card" id="f" autocomplete="on"><div class="logo">D</div>
+<h1>Developer sign in</h1><p class="sub">Restricted to SoniCore developers. Sign in to continue.</p>
+<div id="e" class="err hidden" role="alert"></div>
+<div class="f"><label for="u">Username</label><input id="u" name="username" autocomplete="username" required autofocus></div>
+<div class="f"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+<button class="btn" style="width:100%" id="b">Sign in</button><p class="note">You stay signed in on this device for 30 days.</p></form></main>
+<!--FOOTER-->
+<script>
+f.onsubmit=async ev=>{ev.preventDefault();e.classList.add("hidden");b.disabled=true;b.textContent="Signing in…";
+try{const r=await fetch("/api/v1/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u.value,password:p.value})});const j=await r.json().catch(()=>({}));
+if(r.ok){const n=new URLSearchParams(location.search).get("next");location.href=n&&n.startsWith("/")&&!n.startsWith("//")?n:"/";return}
+e.textContent=j.error||"Sign in failed.";e.classList.remove("hidden")}catch(x){e.textContent="Cannot reach the server.";e.classList.remove("hidden")}
+b.disabled=false;b.textContent="Sign in"}
+</script></body></html>
