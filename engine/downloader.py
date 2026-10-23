@@ -29,7 +29,9 @@ from typing import Any, Iterator, Optional
 from urllib.parse import quote, urljoin
 
 from advanced import ErrorCode, ExtractionError, get_config
-from advanced.stealth import impersonation_available
+from advanced.cookie_manager import cli_args, cookie_options, cookies_active
+from advanced.proxy_manager import pick_proxy
+from advanced.stealth import COOKIE_CLIENTS, impersonation_available
 from advanced.url_security import is_public_media_url
 from helpers import metrics
 
@@ -154,7 +156,7 @@ def _session():
 
 
 def open_stream(url: str, headers: dict[str, str], range_header: Optional[str] = None,
-                cache: Optional[dict] = None):
+                cache: Optional[dict] = None, proxy: Optional[str] = None):
     """GET ``url`` following redirects manually, re-checking every hop for SSRF."""
     config = get_config()
     cache = cache if cache is not None else {}
@@ -165,7 +167,8 @@ def open_stream(url: str, headers: dict[str, str], range_header: Optional[str] =
     for _ in range(6):
         if not is_public_media_url(current, config, cache):
             raise ExtractionError(ErrorCode.UNSUPPORTED_URL, detail="blocked non-public media host")
-        resp = _session().get(current, headers=hdrs, stream=True, allow_redirects=False, timeout=(10, 60))
+        kw = {"proxies": {"http": proxy, "https": proxy}} if proxy else {}
+        resp = _session().get(current, headers=hdrs, stream=True, allow_redirects=False, timeout=(10, 60), **kw)
         if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
             current = urljoin(current, resp.headers["location"])
             resp.close()
@@ -184,11 +187,11 @@ def iter_response(resp) -> Iterator[bytes]:
         resp.close()
 
 
-def _fetch_range(url: str, headers: dict, a: int, b: int, cache: dict) -> bytes:
+def _fetch_range(url: str, headers: dict, a: int, b: int, cache: dict, proxy: Optional[str] = None) -> bytes:
     last: Optional[Exception] = None
     for attempt in range(4):
         try:
-            r = open_stream(url, headers, f"bytes={a}-{b}", cache)
+            r = open_stream(url, headers, f"bytes={a}-{b}", cache, proxy)
             try:
                 if r.status_code != 206 and not (r.status_code == 200 and a == 0):
                     raise IOError(f"HTTP {r.status_code}")
@@ -204,7 +207,7 @@ def _fetch_range(url: str, headers: dict, a: int, b: int, cache: dict) -> bytes:
     raise IOError(f"range {a}-{b} failed: {last}")
 
 
-def parallel_iter(url: str, headers: dict, total: int) -> Iterator[bytes]:
+def parallel_iter(url: str, headers: dict, total: int, proxy: Optional[str] = None) -> Iterator[bytes]:
     """Download ``url`` with several ranged requests at once and yield the bytes in order."""
     cache: dict = {}
     spans = [(s, min(s + RANGE_CHUNK, total) - 1) for s in range(0, total, RANGE_CHUNK)]
@@ -213,12 +216,12 @@ def parallel_iter(url: str, headers: dict, total: int) -> Iterator[bytes]:
     nxt = 0
     try:
         while nxt < len(spans) and len(pending) < WORKERS + 2:
-            pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache))
+            pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache, proxy))
             nxt += 1
         while pending:
             data = pending.popleft().result()
             if nxt < len(spans):
-                pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache))
+                pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache, proxy))
                 nxt += 1
             yield data
     finally:
@@ -242,23 +245,24 @@ def open_fast(fmt: dict, page_url: Optional[str], browser_range: Optional[str] =
     streaming request otherwise. Raises ExtractionError if every attempt is blocked.
     """
     url, last = fmt["download_url"], "no attempt"
+    proxy = fmt.get("_proxy")
     for hdrs in header_attempts(fmt, page_url):
         try:
             if browser_range:                      # resume request from the browser: pass through
-                r = open_stream(url, hdrs, browser_range)
+                r = open_stream(url, hdrs, browser_range, None, proxy)
                 if r.status_code < 400:
                     return r.status_code, None, iter_response(r), r.headers
                 last = f"HTTP {r.status_code}"
                 r.close()
                 continue
-            probe = open_stream(url, hdrs, "bytes=0-0")
+            probe = open_stream(url, hdrs, "bytes=0-0", None, proxy)
             if probe.status_code == 206:
                 m = re.search(r"/(\d+)\s*$", probe.headers.get("content-range", ""))
                 probe.close()
                 total = int(m.group(1)) if m else 0
                 if total > RANGE_CHUNK:
-                    return 200, total, parallel_iter(probe.final_url, hdrs, total), probe.headers
-                r = open_stream(url, hdrs)
+                    return 200, total, parallel_iter(probe.final_url, hdrs, total, proxy), probe.headers
+                r = open_stream(url, hdrs, None, None, proxy)
                 return r.status_code, total or None, iter_response(r), r.headers
             if probe.status_code < 400:            # server ignores Range: plain stream
                 return probe.status_code, int(probe.headers.get("content-length") or 0) or None, \
@@ -444,40 +448,59 @@ def open_convert(src: dict, page_url: Optional[str], target: str):
 # --------------------------------------------------------------------------- #
 # yt-dlp last resort (streamed through a pipe)
 # --------------------------------------------------------------------------- #
-def ytdlp_stream(page_url: str, selector: str) -> Iterator[bytes]:
+def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> Iterator[bytes]:
+    """Last resort: yt-dlp pipes the media to us. Uses the same cookies, proxy and anti-bot flags as extraction."""
     config = get_config()
     sel = "b/bv*" if ("+" in selector or selector in ("bv*+ba/b", "best")) else selector
-    ladders = [[]]
+    proxy = proxy or pick_proxy(config, page_url)
+    cookies = cookies_active(config)
+    clients = ",".join(config.yt_player_clients or (COOKIE_CLIENTS if cookies else ["tv", "web_safari", "mweb"]))
+    yt_extra = [f"player_client={clients}"]
+    if config.yt_po_token:
+        yt_extra += [f"po_token={t}" for t in config.yt_po_token]
+    if config.yt_visitor_data:
+        yt_extra.append(f"visitor_data={config.yt_visitor_data}")
+    ladders = [["--extractor-args", "youtube:" + ";".join(yt_extra)]]
     if impersonation_available():
         ladders.append(["--impersonate", "chrome"])
-    ladders += [["--extractor-args", "youtube:player_client=tv,web_safari,mweb"],
-                ["--extractor-args", "youtube:player_client=android_vr,ios"]]
-    for n, extra in enumerate(ladders, 1):
-        cmd = [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--ignore-config", "--no-playlist",
-               "--no-part", "--no-cache-dir", "-N", "4", "-f", sel, "-o", "-", *extra]
-        if config.proxy:
-            cmd += ["--proxy", config.proxy]
-        cmd.append(page_url)
-        log.info("fetch yt-dlp stream %d/%d", n, len(ladders))
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        first = proc.stdout.read(CHUNK)
-        if not first:
-            proc.kill()
-            proc.wait()
-            log.warning("block yt-dlp method %d/%d -> no data", n, len(ladders))
-            continue
-        try:
-            yield first
-            while True:
-                chunk = proc.stdout.read(CHUNK)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            if proc.poll() is None:
+    if not cookies:
+        ladders.append(["--extractor-args", "youtube:player_client=android_vr,ios"])
+    else:
+        ladders.append(["--extractor-args", "youtube:player_client=tv,mweb,web_embedded"])
+    with cookie_options(config) as copts:
+        base = [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--ignore-config", "--no-playlist",
+                "--no-part", "--no-cache-dir", "-N", "4", "-f", sel, "-o", "-", *cli_args(copts)]
+        if config.force_ipv4:
+            base.append("-4")
+        if config.sleep_requests:
+            base += ["--sleep-requests", str(config.sleep_requests)]
+        if config.sleep_interval:
+            base += ["--sleep-interval", str(config.sleep_interval),
+                     "--max-sleep-interval", str(max(config.max_sleep_interval, config.sleep_interval))]
+        if proxy:
+            base += ["--proxy", proxy]
+        for n, extra in enumerate(ladders, 1):
+            cmd = [*base, *extra, page_url]
+            log.info("fetch yt-dlp stream %d/%d", n, len(ladders))
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            first = proc.stdout.read(CHUNK)
+            if not first:
                 proc.kill()
-            proc.wait()
-        return
+                proc.wait()
+                log.warning("block yt-dlp method %d/%d -> no data", n, len(ladders))
+                continue
+            try:
+                yield first
+                while True:
+                    chunk = proc.stdout.read(CHUNK)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
+            return
     raise ExtractionError(ErrorCode.AUTH_REQUIRED, detail="all download methods blocked")
 
 
@@ -489,6 +512,9 @@ def serve(data: dict, *, format_id: Optional[str], container: Optional[str], con
     """Blocking: pick the route, open it and return {body, status, headers, media_type}."""
     page_url = data.get("webpage_url") or data.get("input_url")
     title = data.get("title")
+    proxy = pick_proxy(get_config(), data.get("input_url") or page_url)   # same proxy that extracted it (IP-bound URLs)
+    if proxy:
+        data = {**data, "formats": [{**f, "_proxy": proxy} for f in (data.get("formats") or [])]}
     mode, plan = plan_download(data, format_id, convert)
 
     def reply(body, name, mime, status=200, total=None, extra=None):
@@ -539,7 +565,7 @@ def serve(data: dict, *, format_id: Optional[str], container: Optional[str], con
 
     if not page_url:
         raise ExtractionError(ErrorCode.NO_FORMATS)
-    body = ytdlp_stream(page_url, plan)
+    body = ytdlp_stream(page_url, plan, proxy)
     first = next(body, None)
     if first is None:
         raise ExtractionError(ErrorCode.NO_FORMATS)

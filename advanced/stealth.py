@@ -21,8 +21,9 @@ from urllib.parse import urlsplit
 
 from .extractor_config import ExtractorConfig
 from .header_manager import load_user_agents
+from .cookie_manager import cookies_active
 
-__all__ = ["Strategy", "build_strategies", "impersonation_available", "impersonate_target"]
+__all__ = ["Strategy", "build_strategies", "impersonation_available", "impersonate_target", "youtube_args", "COOKIE_CLIENTS"]
 
 log = logging.getLogger("downflow.stealth")
 
@@ -49,8 +50,18 @@ def impersonate_target(name: str) -> Any:
         return None
 
 
-def _yt(**kw: Any) -> dict[str, Any]:
-    return {"extractor_args": {"youtube": {"skip": ["translated_subs"], **kw}}}
+# Player clients that accept logged-in cookies (android_vr / ios / tv_embedded ignore them).
+COOKIE_CLIENTS = ["web_safari", "web", "mweb", "tv"]
+
+
+def youtube_args(config: ExtractorConfig, **kw: Any) -> dict[str, Any]:
+    """yt-dlp ``extractor_args`` for YouTube: player clients, PO token and visitor data from the config."""
+    args: dict[str, Any] = {"skip": ["translated_subs"], **kw}
+    if config.yt_po_token:
+        args["po_token"] = list(config.yt_po_token)
+    if config.yt_visitor_data:
+        args["visitor_data"] = [config.yt_visitor_data]
+    return {"extractor_args": {"youtube": args}}
 
 
 def build_strategies(url: str, config: ExtractorConfig) -> list[Strategy]:
@@ -62,15 +73,21 @@ def build_strategies(url: str, config: ExtractorConfig) -> list[Strategy]:
         target = impersonate_target(name)
         return {"impersonate": target} if target is not None else {}
 
+    cookies = cookies_active(config)
+    forced = list(config.yt_player_clients)
+    clients = forced or (COOKIE_CLIENTS if cookies else ["tv", "web_safari", "mweb"])
+    mobile = ["tv", "mweb", "web_embedded"] if cookies else ["android_vr", "ios", "tv_embedded"]
+    _yt = lambda **kw: youtube_args(config, **kw)  # noqa: E731
+
     return [
-        ("browser", {**imp("chrome")}),
-        ("clients", {**imp("chrome"), **_yt(player_client=["tv", "web_safari", "mweb"])}),
-        ("mobile", {**imp("safari"), **_yt(player_client=["android_vr", "ios", "tv_embedded"])}),
+        ("browser", {**imp("chrome"), **_yt(**({"player_client": forced} if forced else {}))}),
+        ("clients", {**imp("chrome"), **_yt(player_client=clients)}),
+        ("mobile", {**imp("safari"), **_yt(player_client=forced or mobile)}),
         ("rotate", {
             **imp("firefox"),
             "geo_bypass": True,
             "http_headers": {"User-Agent": ua, "Referer": origin + "/", "Origin": origin,
                              "Accept-Language": config.accept_language, "Sec-Fetch-Mode": "navigate"},
-            **_yt(player_client=["web_embedded", "mweb"]),
+            **_yt(player_client=forced or ["web_embedded", "mweb"]),
         }),
     ]

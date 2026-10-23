@@ -70,6 +70,13 @@ td.w{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  <div class="card"><label>Response</label><pre class="out" id="out">Send a request…</pre></div></div>
 </section>
 <section data-tab="Tasks" class="hidden"><div class="card" style="overflow:auto"><table><thead><tr><th>Status</th><th>Platform</th><th>Title / URL</th><th>Stage</th><th>Created</th><th>Task</th></tr></thead><tbody id="tasks"></tbody></table></div></section>
+<section data-tab="Cookies" class="hidden">
+ <div class="split"><div><div class="sec">Status</div><div class="card kv" id="ck"></div>
+ <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn" id="ckCheck">Test cookies now</button><span class="muted" id="ckMsg"></span></div></div>
+ <div><div class="sec">Update cookies (hot reload)</div><div class="card"><label>Paste a Netscape cookies.txt</label><textarea id="ckText" spellcheck="false" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1799999999&#9;SID&#9;..." style="min-height:150px"></textarea>
+ <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn" id="ckSave">Save &amp; apply</button><span class="muted" id="ckSaved"></span></div>
+ <p class="muted" style="margin-top:10px">Applied to the next request without a restart. Values are never shown again.</p></div></div></div>
+</section>
 <section data-tab="Config" class="hidden"><div class="card kv" id="cfg"></div></section>
 </main>
 <!--FOOTER-->
@@ -80,12 +87,23 @@ const jget=async p=>(await api(p)).json();
 const fmtB=n=>{n=+n||0;const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+" "+u[i]};
 const fmtT=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+"d ":"")+(h?h+"h ":"")+m+"m "+(s%60)+"s"};
 // tabs
-const ICON={Overview:"▦",Logs:"❯_","API Tester":"⚡",Tasks:"☰",Config:"⚙"};
+const ICON={Overview:"▦",Logs:"❯_","API Tester":"⚡",Tasks:"☰",Cookies:"◉",Config:"⚙"};
 const secs=[...document.querySelectorAll("section[data-tab]")];
 secs.forEach(s=>{const b=document.createElement("button");b.className="tab";b.textContent=ICON[s.dataset.tab]+"  "+s.dataset.tab;b.dataset.n=s.dataset.tab;b.onclick=()=>show(s.dataset.tab);$("tabs").append(b)});
 function show(n){secs.forEach(s=>s.classList.toggle("hidden",s.dataset.tab!==n));[...$("tabs").children].forEach(b=>b.classList.toggle("on",b.dataset.n===n));$("title").textContent=n;
- try{localStorage.setItem("adm_tab",n)}catch(e){}if(n==="Tasks")loadTasks();if(n==="Config")loadCfg();if(n==="Logs")scroll()}
+ try{localStorage.setItem("adm_tab",n)}catch(e){}if(n==="Tasks")loadTasks();if(n==="Config")loadCfg();if(n==="Cookies")loadCk();if(n==="Logs")scroll()}
 let saved="Overview";try{saved=localStorage.getItem("adm_tab")||saved}catch(e){}
+
+// cookies
+const yn=(v,t,f)=>v?`<span class="ok">${t}</span>`:`<span class="r">${f}</span>`;
+async function loadCk(){try{const c=await jget("/api/v1/admin/cookies"),l=c.last_check||{};let h=`<b>source</b><span>${esc(c.source)} <span class="muted">(${esc(c.configured_mode)})</span></span>`;
+ if(c.source==="file"){h+=`<b>cookies</b><span>${c.count} · ${esc((c.domains||[]).join(", "))}</span><b>login cookies</b><span>${yn(c.logged_in_cookies,"present","missing")}</span>`
+  +`<b>expires in</b><span class="${c.expired?"r":""}">${c.expires_in_days==null?"—":c.expires_in_days+" days"}</span><b>updated</b><span>${c.file_modified?new Date(c.file_modified*1000).toLocaleString():"—"}</span>`
+  +`<b>auto-refresh</b><span>${c.writeback?"on":"off"}</span>`}else if(c.source==="browser"){h+=`<b>browser</b><span>${esc(c.browser)}</span>`}else{h+=`<b>hint</b><span class="muted">${esc(c.hint||"")}</span>`}
+ h+=`<b>last test</b><span>${l.checked_at?(l.valid===true?'<span class="ok">valid</span>':l.valid===false?'<span class="r">invalid</span>':'<span class="y">unknown</span>')+" · "+esc(l.detail||"")+" · "+new Date(l.checked_at*1000).toLocaleTimeString():'<span class="muted">'+esc(l.detail||"not tested")+"</span>"}</span>`;$("ck").innerHTML=h}catch(e){}}
+$("ckCheck").onclick=async()=>{$("ckMsg").textContent="testing…";try{const r=await(await api("/api/v1/admin/cookies/check",{method:"POST"})).json();$("ckMsg").textContent=(r.valid===true?"valid":r.valid===false?"INVALID":"unknown")+" · "+r.detail}catch(e){$("ckMsg").textContent="failed"}loadCk()};
+$("ckSave").onclick=async()=>{const t=$("ckText").value.trim();if(!t)return;$("ckSaved").textContent="saving…";try{const r=await api("/api/v1/admin/cookies",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})});const j=await r.json();
+ if(j.ok){$("ckText").value="";$("ckSaved").textContent="saved · "+j.status.count+" cookies"}else $("ckSaved").textContent=j.error||"invalid"}catch(e){$("ckSaved").textContent="failed"}loadCk()};
 // overview
 let lastBytes=null,series=[];
 const card=(k,v,c)=>`<div class="card stat"><div class="k">${k}</div><div class="v ${c||""}">${v}</div></div>`;

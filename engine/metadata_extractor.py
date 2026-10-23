@@ -37,7 +37,8 @@ from advanced import (
     sanitize_text,
     sanitize_url,
 )
-from advanced.cookie_manager import cookie_options
+from advanced.cookie_manager import cookie_options, cookies_active
+from advanced.proxy_manager import pick_proxy, redact
 from advanced.header_manager import build_headers
 from helpers import metrics
 from advanced.stealth import build_strategies
@@ -153,6 +154,7 @@ def build_ydl_options(
     metadata_only: bool,
     format_selector: str,
     cookie_opts: dict[str, Any],
+    proxy: Optional[str] = None,
 ) -> dict[str, Any]:
     """Construct the yt-dlp option dict (no downloads, no user config files)."""
     opts: dict[str, Any] = {
@@ -178,8 +180,16 @@ def build_ydl_options(
     }
     if config.remote_components:
         opts["remote_components"] = [c for c in config.remote_components if _REMOTE_COMPONENT_RE.match(c)]
-    if config.proxy:
-        opts["proxy"] = _validated_proxy(config.proxy)
+    proxy = proxy or config.proxy
+    if proxy:
+        opts["proxy"] = _validated_proxy(proxy)
+    if config.force_ipv4:
+        opts["source_address"] = "0.0.0.0"            # yt-dlp -4: YouTube links are bound to one IP family
+    if config.sleep_requests:
+        opts["sleep_interval_requests"] = config.sleep_requests
+    if config.sleep_interval:
+        opts["sleep_interval"] = config.sleep_interval
+        opts["max_sleep_interval"] = max(config.max_sleep_interval, config.sleep_interval)
     opts.update(cookie_opts)
     return opts
 
@@ -320,8 +330,11 @@ def extract(
             rate_limit_max_attempts=config.retry_rate_limit_attempts,
         )
         with cookie_options(config) as cookie_opts:
+            proxy = pick_proxy(config, normalized)
+            if proxy:
+                log.info("proxy %s", redact(proxy))
             opts = build_ydl_options(config, metadata_only=metadata_only, format_selector=selector,
-                                     cookie_opts=cookie_opts)
+                                     cookie_opts=cookie_opts, proxy=proxy)
             report("extracting_metadata", "Extracting video information")
 
             def on_retry(error: ExtractionError, attempt: int, delay: float) -> None:
@@ -347,7 +360,7 @@ def extract(
 
 
 def _adjust_for_cookies(err: ExtractionError, config: ExtractorConfig) -> ExtractionError:
-    if err.code is ErrorCode.AUTH_REQUIRED and (config.cookie_file or config.cookies_from_browser):
+    if err.code is ErrorCode.AUTH_REQUIRED and cookies_active(config):
         return ExtractionError(ErrorCode.COOKIES_INVALID, detail=err.detail)
     return err
 

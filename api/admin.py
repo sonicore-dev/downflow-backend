@@ -14,7 +14,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import asyncio
+
 from advanced import get_config
+from advanced import cookie_manager
 from advanced.stealth import impersonation_available
 from api.version_prefix import API_PREFIX
 from helpers import auth, metrics
@@ -132,10 +135,38 @@ async def tasks():
 @admin.get("/config")
 async def config():
     cfg = dataclasses.asdict(get_config())
-    for key in ("proxy", "cookie_file", "cookies_from_browser"):
+    for key in ("proxy", "cookie_file", "cookies_from_browser", "browser_profile_dir", "yt_visitor_data"):
         if cfg.get(key):
             cfg[key] = "•••• set"
+    for key in ("proxy_list", "yt_po_token"):
+        if cfg.get(key):
+            cfg[key] = [f"•••• {len(cfg[key])} set"]
     return cfg
+
+
+class CookieText(BaseModel):
+    text: str
+
+
+@admin.get("/cookies")
+async def cookies_status():
+    """Cookie source, counts, expiry and the last validity check. Never returns cookie values."""
+    return cookie_manager.cookie_status()
+
+
+@admin.post("/cookies")
+async def cookies_install(body: CookieText):
+    """Replace the YouTube cookie file with pasted Netscape-format text. Takes effect immediately."""
+    try:
+        return {"ok": True, "status": await asyncio.to_thread(cookie_manager.install_cookie_text, body.text)}
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": "That is not a valid Netscape cookie file."})
+
+
+@admin.post("/cookies/check")
+async def cookies_check():
+    """Live test: does YouTube still treat the current cookies as signed in?"""
+    return await asyncio.to_thread(cookie_manager.check_cookies_live)
 
 
 _EXAMPLES = {

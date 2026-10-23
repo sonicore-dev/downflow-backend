@@ -19,6 +19,7 @@ __all__ = ["ExtractorConfig", "get_config"]
 log = logging.getLogger("downflow.config")
 
 ADVANCED_DIR = Path(__file__).resolve().parent
+BASE_DIR = ADVANCED_DIR.parent
 DEFAULT_USER_AGENT_FILE = ADVANCED_DIR / "headers" / "user-agents.txt"
 
 _PREFIX = "DOWNFLOW_"
@@ -71,6 +72,19 @@ def _list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(p.strip() for p in raw.split(",") if p.strip())
 
 
+def _proxy_file() -> tuple[str, ...]:
+    """Read one proxy URL per line from DOWNFLOW_PROXY_FILE (blank lines and # comments ignored)."""
+    path = _env("PROXY_FILE")
+    if not path:
+        return ()
+    try:
+        lines = Path(path).expanduser().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        log.warning("Cannot read %sPROXY_FILE", _PREFIX)
+        return ()
+    return tuple(l.strip() for l in lines if l.strip() and not l.strip().startswith("#"))
+
+
 @dataclass(frozen=True)
 class ExtractorConfig:
     # Network
@@ -97,8 +111,25 @@ class ExtractorConfig:
     max_format_length: int = 200
     # Proxy / cookies
     proxy: Optional[str] = None
-    cookie_file: Optional[str] = None
-    cookies_from_browser: Optional[str] = None
+    proxy_list: tuple[str, ...] = ()         # optional pool (rotating / residential); see advanced/proxy_manager.py
+    proxy_mode: str = "sticky"               # sticky (same proxy per video) | round_robin | random
+    cookie_file: Optional[str] = None        # explicit path; default is <cookies_dir>/youtube.txt
+    cookies_dir: str = str(BASE_DIR / "cookies")
+    cookies_from_browser: Optional[str] = None   # yt-dlp spec: BROWSER[+KEYRING][:PROFILE][::CONTAINER]
+    browser_profile_dir: Optional[str] = None    # persistent Chrome/Chromium --user-data-dir
+    browser_name: str = "chromium"
+    browser_keyring: str = "basictext"
+    cookie_source: str = "auto"              # auto | file | browser | none
+    cookie_writeback: bool = True            # keep rotated cookies yt-dlp refreshes during use
+    cookie_check_interval: float = 3600.0    # seconds between live validity checks (0 = off)
+    # Anti-bot behaviour
+    force_ipv4: bool = True
+    sleep_requests: float = 0.5              # pause between extractor requests (seconds)
+    sleep_interval: float = 0.0              # pause before each download (yt-dlp --sleep-interval)
+    max_sleep_interval: float = 0.0
+    yt_player_clients: tuple[str, ...] = ()  # empty = automatic (cookie-friendly clients when cookies are active)
+    yt_po_token: tuple[str, ...] = ()        # e.g. "web.gvs+XXXX" (see yt-dlp PO Token guide)
+    yt_visitor_data: Optional[str] = None
     # Headers
     rotate_user_agent: bool = False
     user_agent_file: str = str(DEFAULT_USER_AGENT_FILE)
@@ -113,6 +144,11 @@ class ExtractorConfig:
     js_runtimes: tuple[str, ...] = ("deno", "node")
     remote_components: tuple[str, ...] = ()  # e.g. "ejs:github" to allow solver download
     verbose: bool = False
+
+    @property
+    def default_cookie_file(self) -> str:
+        """The cookie file in use: DOWNFLOW_COOKIE_FILE, else <cookies_dir>/youtube.txt."""
+        return self.cookie_file or str(Path(self.cookies_dir).expanduser() / "youtube.txt")
 
     @classmethod
     def from_env(cls) -> "ExtractorConfig":
@@ -136,8 +172,24 @@ class ExtractorConfig:
             max_playlist_entries=_int("MAX_PLAYLIST_ENTRIES", d.max_playlist_entries, 1, 500),
             default_format=_env("DEFAULT_FORMAT") or d.default_format,
             proxy=_env("PROXY"),
+            proxy_list=_list("PROXY_LIST", d.proxy_list) or _proxy_file(),
+            proxy_mode=(_env("PROXY_MODE") or d.proxy_mode).lower(),
             cookie_file=_env("COOKIE_FILE"),
+            cookies_dir=_env("COOKIES_DIR") or d.cookies_dir,
             cookies_from_browser=_env("COOKIES_FROM_BROWSER"),
+            browser_profile_dir=_env("BROWSER_PROFILE_DIR"),
+            browser_name=(_env("BROWSER_NAME") or d.browser_name).lower(),
+            browser_keyring=(_env("BROWSER_KEYRING") or d.browser_keyring).lower(),
+            cookie_source=(_env("COOKIE_SOURCE") or d.cookie_source).lower(),
+            cookie_writeback=_bool("COOKIE_WRITEBACK", d.cookie_writeback),
+            cookie_check_interval=_float("COOKIE_CHECK_INTERVAL", d.cookie_check_interval, 0, 86400),
+            force_ipv4=_bool("FORCE_IPV4", d.force_ipv4),
+            sleep_requests=_float("SLEEP_REQUESTS", d.sleep_requests, 0, 10),
+            sleep_interval=_float("SLEEP_INTERVAL", d.sleep_interval, 0, 60),
+            max_sleep_interval=_float("MAX_SLEEP_INTERVAL", d.max_sleep_interval, 0, 120),
+            yt_player_clients=_list("YT_PLAYER_CLIENTS", d.yt_player_clients),
+            yt_po_token=_list("YT_PO_TOKEN", d.yt_po_token),
+            yt_visitor_data=_env("YT_VISITOR_DATA"),
             rotate_user_agent=_bool("ROTATE_USER_AGENT", d.rotate_user_agent),
             user_agent_file=_env("USER_AGENT_FILE") or d.user_agent_file,
             accept_language=_env("ACCEPT_LANGUAGE") or d.accept_language,

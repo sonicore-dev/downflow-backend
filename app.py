@@ -27,14 +27,43 @@ cleanup_stale()
 _base_lifespan = app.router.lifespan_context
 
 
+async def _cookie_watchdog():
+    """Log the cookie state at startup, then re-test the cookies periodically (warns when they die)."""
+    import asyncio
+    import logging
+
+    from advanced import cookie_manager, get_config
+    cfg, log = get_config(), logging.getLogger("downflow.cookies")
+    st = cookie_manager.cookie_status(cfg)
+    if st["source"] == "file":
+        log.info("cookies: file source · %s cookies · login cookies %s · expires in %s days",
+                 st.get("count"), "present" if st.get("logged_in_cookies") else "MISSING", st.get("expires_in_days"))
+    elif st["source"] == "browser":
+        log.info("cookies: browser profile source (%s)", st.get("browser"))
+    else:
+        log.info("cookies: none configured (%s)", st.get("hint"))
+    if st["source"] != "file" or cfg.cookie_check_interval <= 0:
+        return
+    await asyncio.sleep(15)
+    while True:
+        try:
+            await asyncio.to_thread(cookie_manager.check_cookies_live, cfg)
+        except Exception:  # noqa: BLE001
+            pass
+        await asyncio.sleep(cfg.cookie_check_interval)
+
+
 @asynccontextmanager
 async def _lifespan(application):
     # Wrap the existing lifespan so running extraction tasks are stopped
     # (and reported as failed) when the application shuts down.
+    import asyncio
+    watchdog = asyncio.create_task(_cookie_watchdog())
     async with _base_lifespan(application) as state:
         try:
             yield state
         finally:
+            watchdog.cancel()
             await shutdown_extraction()
 
 

@@ -42,3 +42,38 @@ Keep yt-dlp current (`pip install -U "yt-dlp[default]"`) — extractor breakage 
 * SSRF checks cover syntax, DNS results, the submitted URL's redirect chain, and returned media hosts. yt-dlp resolves DNS itself, so DNS rebinding is not fully excluded — also apply network egress filtering.
 * User-agent rotation is off by default and is not a bypass for rate limits or access controls.
 * Concurrency limits are per process; with multiple workers the limit multiplies.
+
+## Cookies, proxy and anti-bot settings
+
+### YouTube cookies
+* The cookie file lives at `cookies/youtube.txt` (Netscape format, `chmod 600`, git-ignored). Change the folder with
+  `DOWNFLOW_COOKIES_DIR` (for example `/app/cookies`) or the exact file with `DOWNFLOW_COOKIE_FILE`.
+* **Hot reload:** the file is read on every extraction. Replace it on disk, or paste new text in the admin
+  dashboard (**Cookies** tab), or `POST /api/v1/admin/cookies {"text": "..."}`. No restart needed.
+* **Validation:** the admin **Cookies** tab (and `POST /api/v1/admin/cookies/check`) asks YouTube whether the cookies are
+  still signed in. The server also tests them every `DOWNFLOW_COOKIE_CHECK_INTERVAL` seconds (default 3600) and logs a
+  warning when they die. `GET /api/v1/admin/cookies` shows count, login cookies and days until expiry (never values).
+* **Auto-refresh:** YouTube rotates some cookies while they are used. With `DOWNFLOW_COOKIE_WRITEBACK=1` (default) the
+  rotated cookies are saved back atomically, which keeps the session alive much longer.
+* Switch source with `DOWNFLOW_COOKIE_SOURCE=auto|file|browser|none` (auto = file if present, else browser profile).
+
+### Persistent browser profile (for automatic refresh later)
+1. `tools/browser_profile.sh` opens Chromium with `--user-data-dir=./browser-profile --password-store=basic`.
+   Sign in to YouTube once, then close the browser.
+2. Set `DOWNFLOW_BROWSER_PROFILE_DIR=/path/to/browser-profile` (uses `chromium+basictext`), or the full yt-dlp spec
+   `DOWNFLOW_COOKIES_FROM_BROWSER=chromium+basictext:/path/to/browser-profile`.
+3. `python tools/refresh_cookies.py` exports fresh cookies from that profile into `cookies/youtube.txt` (cron-friendly).
+
+### Proxy (residential / rotating)
+`DOWNFLOW_PROXY=http://user:pass@host:port` (also `socks5h://`). For a pool use `DOWNFLOW_PROXY_LIST=a,b,c` or
+`DOWNFLOW_PROXY_FILE`, with `DOWNFLOW_PROXY_MODE=sticky` (default: one video always uses the same proxy, required because
+YouTube media links are IP-bound), `round_robin` or `random`. The same proxy is used for extraction and for the download.
+
+### Anti-bot defaults
+IPv4 only (`DOWNFLOW_FORCE_IPV4=1`), 0.5 s between extractor requests (`DOWNFLOW_SLEEP_REQUESTS`), optional
+`DOWNFLOW_SLEEP_INTERVAL`. With cookies active, YouTube uses cookie-friendly player clients (`web_safari, web, mweb, tv`);
+override with `DOWNFLOW_YT_PLAYER_CLIENTS`, and add a PO token / visitor data with `DOWNFLOW_YT_PO_TOKEN`,
+`DOWNFLOW_YT_VISITOR_DATA`. See `.env.example` for everything.
+
+**Security:** the cookies are the keys to your Google account. Keep `cookies/` private, never commit or share it, and
+change the admin password (`DOWNFLOW_ADMIN_PASS`).
