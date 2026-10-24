@@ -147,9 +147,10 @@ async def config():
 @admin.get("/antiblock")
 async def antiblock():
     """Live view of the anti-blocking layer: proxy health, PO-token provider, strategy memory, yt-dlp version."""
-    from advanced import pot_provider, proxy_manager, strategy_engine, updater
+    from advanced import doctor, pot_provider, proxy_manager, strategy_engine, updater
     cfg = get_config()
     return {
+        "doctor": await asyncio.to_thread(doctor.run_checks, cfg),
         "proxies": proxy_manager.stats(cfg),
         "pot_provider": await asyncio.to_thread(pot_provider.status, cfg),
         "strategies": strategy_engine.memory_snapshot(),

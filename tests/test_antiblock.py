@@ -106,16 +106,16 @@ def test_engine_falls_through_blocks_and_remembers_the_winner():
 
     def attempt(name, overlay, proxy):
         calls.append(name)
-        if name != "yt-android_vr":
+        if name != "yt-android_vr-nopage":
             raise _err(ErrorCode.AUTH_REQUIRED)
         return {"id": "x"}
 
     c = cfg(race_width=1, hedge_delay=0)
     info, _, won = strategy_engine.run(YT, c, attempt, time.monotonic() + 30, lambda *a: None)
-    assert won == "yt-android_vr" and info == {"id": "x"} and len(calls) > 1
+    assert won == "yt-android_vr-nopage" and info == {"id": "x"} and len(calls) > 1
     calls.clear()
     strategy_engine.run(YT, c, attempt, time.monotonic() + 30, lambda *a: None)
-    assert calls == ["yt-android_vr"]                              # second request: first try wins
+    assert calls == ["yt-android_vr-nopage"]                              # second request: first try wins
 
 
 def test_engine_hedges_a_slow_attempt():
@@ -127,10 +127,94 @@ def test_engine_hedges_a_slow_attempt():
             return {"slow": True}
         return {"fast": True}
 
-    c = cfg(race_width=2, hedge_delay=0.3)
+    c = cfg(race_width=2, hedge_delay=0.3, proxy_list=("http://a.example.com:1", "http://b.example.com:1"))
     t = time.monotonic()
     info, _, won = strategy_engine.run("https://vimeo.com/1", c, attempt, time.monotonic() + 20, lambda *a: None)
     assert info == {"fast": True} and time.monotonic() - t < 2
+
+
+def test_no_parallel_race_from_a_single_ip():
+    fresh_memory(); reset_proxies()
+    running, peak = [0], [0]
+
+    def attempt(name, overlay, proxy):
+        running[0] += 1; peak[0] = max(peak[0], running[0])
+        time.sleep(0.5)
+        running[0] -= 1
+        if name != "yt-tv":
+            raise _err(ErrorCode.AUTH_REQUIRED)
+        return {"ok": 1}
+
+    strategy_engine.run(YT, cfg(race_width=2, hedge_delay=0.1), attempt, time.monotonic() + 20, lambda *a: None)
+    assert peak[0] == 1                                            # same IP: sequential, never doubled
+
+
+def test_format_not_available_falls_through_and_single_ip_gives_up_after_four_blocks():
+    fresh_memory(); reset_proxies()
+    calls = []
+
+    def attempt(name, overlay, proxy):
+        calls.append(name)
+        raise _err(ErrorCode.FORMAT_NOT_AVAILABLE)                  # YouTube strips all formats on a blocked session
+
+    try:
+        strategy_engine.run(YT, cfg(race_width=1), attempt, time.monotonic() + 20, lambda *a: None)
+        raise AssertionError("expected error")
+    except ExtractionError as e:
+        assert e.code is ErrorCode.FORMAT_NOT_AVAILABLE
+    assert len(calls) == 4                                         # tried several routes, then stopped hammering
+
+    calls.clear()
+    c = cfg(race_width=1, proxy_list=("http://a.example.com:1", "http://b.example.com:1"))
+    try:
+        strategy_engine.run(YT, c, attempt, time.monotonic() + 20, lambda *a: None)
+    except ExtractionError:
+        pass
+    assert len(calls) > 4                                          # with several exits it keeps going
+
+
+def test_repeated_blocks_from_one_ip_report_ip_blocked():
+    fresh_memory(); reset_proxies()
+
+    def attempt(name, overlay, proxy):
+        raise _err(ErrorCode.RATE_LIMITED if name == "yt-web_safari" else ErrorCode.FORMAT_NOT_AVAILABLE)
+
+    try:
+        strategy_engine.run(YT, cfg(race_width=1), attempt, time.monotonic() + 20, lambda *a: None)
+        raise AssertionError("expected error")
+    except ExtractionError as e:
+        assert e.code is ErrorCode.IP_BLOCKED and e.retryable and e.http_status == 503
+
+
+def test_logged_in_routes_are_tried_before_giving_up():
+    fresh_memory(); reset_proxies()
+    path = Path(tempfile.mkdtemp()) / "youtube.txt"
+    path.write_text(COOKIES)
+    calls = []
+
+    def attempt(name, overlay, proxy):
+        calls.append(name)
+        if name.startswith("yt-cookies"):
+            return {"ok": 1}
+        raise _err(ErrorCode.AUTH_REQUIRED)
+
+    c = cfg(race_width=1, cookie_source="file", cookie_file=str(path))
+    _, _, won = strategy_engine.run(YT, c, attempt, time.monotonic() + 20, lambda *a: None)
+    assert won.startswith("yt-cookies") and len([n for n in calls if not n.startswith("yt-cookies")]) == 4
+
+
+def test_ip_blocked_headline_even_with_a_stray_outdated_error():
+    errs = [_err(ErrorCode.FORMAT_NOT_AVAILABLE), _err(ErrorCode.EXTRACTOR_OUTDATED),
+            _err(ErrorCode.AUTH_REQUIRED), _err(ErrorCode.AUTH_REQUIRED)]
+    assert strategy_engine._summarise(errs).code is ErrorCode.IP_BLOCKED
+
+
+def test_nopage_variants_exist_for_youtube_and_doctor_runs():
+    names = [n for n, _ in build_strategies(YT, cfg())]
+    assert "yt-android_vr-nopage" in names
+    from advanced import doctor
+    checks = doctor.run_checks(cfg())
+    assert {c["check"] for c in checks} >= {"yt-dlp", "JavaScript runtime", "challenge solver", "proxy"}
 
 
 def test_engine_stops_on_final_errors_and_reports_most_informative():

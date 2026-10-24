@@ -31,6 +31,7 @@ class ErrorCode(str, enum.Enum):
     UNSUPPORTED_URL = "unsupported_url"
     RATE_LIMITED = "rate_limited"
     AUTH_REQUIRED = "auth_required"
+    IP_BLOCKED = "ip_blocked"
     COOKIES_INVALID = "cookies_invalid"
     PRIVATE_VIDEO = "private_video"
     UNAVAILABLE = "unavailable"
@@ -55,6 +56,7 @@ _META: dict[ErrorCode, tuple[int, bool, str]] = {
     ErrorCode.URL_NOT_ALLOWED: (400, False, "The submitted URL points to a destination that is not allowed."),
     ErrorCode.UNSUPPORTED_URL: (422, False, "This URL or platform is not supported."),
     ErrorCode.RATE_LIMITED: (429, True, "The source platform is rate limiting requests. Try again later."),
+    ErrorCode.IP_BLOCKED: (503, True, "The source platform is blocking or rate limiting this server's IP address. Wait a while, switch network, or configure a proxy."),
     ErrorCode.AUTH_REQUIRED: (403, False, "This content requires authentication, which is not available to the server."),
     ErrorCode.COOKIES_INVALID: (403, False, "The configured cookies were rejected or have expired. The operator must refresh them."),
     ErrorCode.PRIVATE_VIDEO: (403, False, "This video is private."),

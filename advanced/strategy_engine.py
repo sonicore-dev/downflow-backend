@@ -33,9 +33,12 @@ log = logging.getLogger("downflow.strategy")
 # Anything not listed here is final (unsupported, unavailable, private, geo ...) and raised immediately.
 _CONTINUE = {ErrorCode.AUTH_REQUIRED, ErrorCode.RATE_LIMITED, ErrorCode.NETWORK_ERROR, ErrorCode.TIMEOUT,
              ErrorCode.NO_FORMATS, ErrorCode.EXTRACTOR_OUTDATED, ErrorCode.INTERNAL_ERROR,
-             ErrorCode.COOKIES_INVALID, ErrorCode.AGE_RESTRICTED, ErrorCode.PRIVATE_VIDEO}
+             ErrorCode.COOKIES_INVALID, ErrorCode.AGE_RESTRICTED, ErrorCode.PRIVATE_VIDEO,
+             ErrorCode.FORMAT_NOT_AVAILABLE}      # on a blocked session YouTube strips every real format ("only images")
 _NEEDS_COOKIES = {ErrorCode.AGE_RESTRICTED, ErrorCode.PRIVATE_VIDEO}
 _BLOCKED = {ErrorCode.AUTH_REQUIRED, ErrorCode.RATE_LIMITED}
+_BLOCKLIKE = _BLOCKED | {ErrorCode.FORMAT_NOT_AVAILABLE, ErrorCode.NO_FORMATS}
+_MAX_BLOCKS_SAME_EXIT = 4        # stop hammering one blocked IP: more attempts from it only prolong the ban
 _DEAD = {ErrorCode.NETWORK_ERROR, ErrorCode.TIMEOUT}
 _UNINFORMATIVE = {ErrorCode.INTERNAL_ERROR, ErrorCode.EXTRACTOR_OUTDATED, ErrorCode.NO_FORMATS}
 _BAD_AFTER, _BAD_FOR = 3, 600.0
@@ -100,14 +103,28 @@ def memory_snapshot() -> dict[str, Any]:
                 "failing": {k: int(v[0]) for k, v in _MEMORY.fails.items() if v[0] >= _BAD_AFTER}}
 
 
+def _summarise(errors: list[ExtractionError]) -> ExtractionError:
+    """Pick the error that tells the operator the most. Several blocks in a row = the IP is the problem."""
+    blocks = sum(e.code in _BLOCKED for e in errors)
+    if len(errors) >= 3 and ((blocks and all(e.code in _BLOCKLIKE for e in errors)) or blocks >= 2):
+        return ExtractionError(ErrorCode.IP_BLOCKED, detail="; ".join(sorted({e.code.value for e in errors})))
+    best = [e for e in errors if e.code not in _UNINFORMATIVE] or errors
+    return best[-1]
+
+
 def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
         report: Callable[[str, str], None]) -> tuple[dict[str, Any], Optional[str], str]:
     """Return ``(info, proxy_used, strategy_name)`` or raise the most informative :class:`ExtractionError`."""
     site = proxy_manager.host_of(url)
     strategies = _MEMORY.order(site, build_strategies(url, config))
     cookie_names = {n for n, ov in strategies if ov.get("_cookies", True) is not False}
-    width = max(1, config.race_width)
+    pool_ = proxy_manager.pool(config)
+    multi_exit = len(pool_) > 1 or any(proxy_manager.is_templated(p) for p in pool_)
+    # Racing only helps when the parallel attempt leaves from a different IP; from one IP it just doubles the load.
+    width = max(1, config.race_width) if multi_exit else 1
     hedge = config.hedge_delay if config.hedge_delay > 0 else 1e9
+    block_streak = 0
+    tried_logged_in = False
 
     pending = list(strategies)
     running: dict[cf.Future, tuple[str, Optional[str], float]] = {}
@@ -142,6 +159,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                     log.info("hedge slow attempt -> starting next strategy in parallel")
                     launch()
                 continue
+            giveup = False
             for fut in done:
                 name, proxy, t0 = running.pop(fut)
                 try:
@@ -151,6 +169,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                     log.warning("block %s -> %s (%.1fs)", name, err.code.value, time.monotonic() - t0)
                     errors.append(err)
                     _MEMORY.lose(site, name)
+                    block_streak = block_streak + 1 if err.code in _BLOCKLIKE else 0
                     if err.code in _BLOCKED:
                         proxy_manager.report(proxy, site, "blocked" if err.code is ErrorCode.AUTH_REQUIRED
                                              else "rate_limited", config)
@@ -162,17 +181,28 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                         pending[:] = [s for s in pending if s[0] in cookie_names and s[1].get("_cookies") is not False]
                         if not pending and not running:
                             raise err
+                    if block_streak >= _MAX_BLOCKS_SAME_EXIT and not multi_exit and not running:
+                        logged = [x for x in pending if x[0].startswith("yt-cookies")]
+                        if logged and not tried_logged_in:      # last resort before giving up: the signed-in routes
+                            tried_logged_in, block_streak = True, 0
+                            pending[:] = logged
+                            log.info("cookie-less routes are blocked; trying the logged-in routes")
+                            continue
+                        log.warning("giving up after %d blocked attempts from the same IP (add a proxy or wait)", block_streak)
+                        giveup = True
+                        break
                     continue
                 proxy_manager.report(proxy, site, "ok", config)
                 _MEMORY.win(site, name)
                 if launched > 1:
                     log.info("ok    unlocked via %s", name)
                 return info, proxy, name
+            if giveup:
+                break
             if pending and len(running) < width and (not running or errors):
                 launch()
         if errors:
-            best = [e for e in errors if e.code not in _UNINFORMATIVE] or errors
-            raise best[-1]
+            raise _summarise(errors)
         raise ExtractionError(ErrorCode.TIMEOUT)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)

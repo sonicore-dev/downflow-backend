@@ -68,6 +68,17 @@ Put the cookie file in *Environment > Secret Files* as `youtube.txt` (read-only:
 upload it from the admin Cookies tab (lost on redeploy unless you attach a disk). Change the default admin password with
 `DOWNFLOW_ADMIN_USER` / `DOWNFLOW_ADMIN_PASS`.
 
+**Startup self-check:** the log prints `check ok/FAIL` lines for the JS runtime (Node 20+ or Deno), the challenge solver
+(`yt-dlp-ejs`), TLS impersonation, the PO-token provider and the proxy, with the fix for each failure. Without a JS runtime
+YouTube returns *"Only images are available" / "Requested format is not available"* no matter what else is configured.
+On Termux: `pkg install nodejs` and `pip install -U yt-dlp-ejs` (or `DOWNFLOW_REMOTE_COMPONENTS=ejs:github`).
+
+**HTTP 429 / "confirm you're not a bot" on the very first request** means the IP itself is flagged or rate limited
+(common on mobile-carrier IPs and after many test requests). Wait a few hours or switch network, and use a proxy.
+From a single IP the engine runs strategies one at a time and stops after 4 blocked attempts instead of hammering it.
+
+Termux: run `sh tools/termux_setup.sh` once (Node.js, ffmpeg, newest yt-dlp + solver).
+
 Tests: `python tests/test_antiblock.py` (offline).
 
 ## Cookies, proxy and anti-bot settings

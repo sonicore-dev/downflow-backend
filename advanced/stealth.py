@@ -82,8 +82,8 @@ def youtube_args(config: ExtractorConfig, **kw: Any) -> dict[str, Any]:
 def _youtube(config: ExtractorConfig, imp, cookies: bool) -> list[Strategy]:
     forced = list(config.yt_player_clients)
 
-    def yt(name: str, clients: list[str], tls: str = "chrome", use_cookies: bool = False, **extra: Any) -> Strategy:
-        ov: dict[str, Any] = {**imp(tls), **youtube_args(config, player_client=clients), **extra}
+    def yt(name: str, clients: list[str], tls: str = "chrome", use_cookies: bool = False, **ykw: Any) -> Strategy:
+        ov: dict[str, Any] = {**imp(tls), **youtube_args(config, player_client=clients, **ykw)}
         if not use_cookies:
             ov["_cookies"] = False
         return name, ov
@@ -97,8 +97,11 @@ def _youtube(config: ExtractorConfig, imp, cookies: bool) -> list[Strategy]:
     plain += [
         yt("yt-web_safari", ["web_safari"], "safari"),       # HLS formats, no GVS PO token needed
         yt("yt-tv", ["tv"]),
+        # These clients do not need the watch page, so they still work while that page answers 429.
+        yt("yt-android_vr-nopage", ["android_vr"], player_skip=["webpage", "configs"]),
+        yt("yt-tv-nopage", ["tv"], player_skip=["webpage", "configs"]),
         yt("yt-android_vr", ["android_vr"]),
-        yt("yt-embedded", ["web_embedded", "tv_embedded"]),
+        yt("yt-embedded", ["web_embedded"]),
     ]
     if pot:
         plain.append(yt("yt-ios-pot", ["ios"], "safari"))

@@ -61,6 +61,9 @@ async def _lifespan(application):
     watchdog = asyncio.create_task(_cookie_watchdog())
     from advanced import get_config, updater
     updater.start(get_config())
+    import threading
+    from advanced import doctor
+    threading.Thread(target=doctor.log_report, args=(get_config(),), daemon=True, name="doctor").start()
     async with _base_lifespan(application) as state:
         try:
             yield state
