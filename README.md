@@ -43,6 +43,33 @@ Keep yt-dlp current (`pip install -U "yt-dlp[default]"`) — extractor breakage 
 * User-agent rotation is off by default and is not a bypass for rate limits or access controls.
 * Concurrency limits are per process; with multiple workers the limit multiplies.
 
+## Anti-blocking layer
+
+YouTube (and other sites) block by **IP reputation, TLS fingerprint, player client and PO token**, not only by login.
+The engine attacks all four, in this order of cost:
+
+| Layer | What it does | Files |
+|---|---|---|
+| Strategy ladder | Tries cookie-less routes first (web_safari HLS, mweb + PO token, tv, android_vr, embedded, ios), then logged-in routes, then a header/geo variant. Non-YouTube sites get a Chrome/Safari/Edge/Firefox TLS-impersonation ladder. | `advanced/stealth.py` |
+| Hedged racing + memory | Remembers the route that last worked per site (tried first next time, survives restarts), starts the next route in parallel when one is slow (`HEDGE_DELAY`), fails over instantly on a block. | `advanced/strategy_engine.py` |
+| Proxy pool | Health-tracked pool: a proxy blocked by a site is parked for that site (exponential cool-down), dead ones globally; every retry uses a different proxy / session id; the proxy that worked is bound to the URL so the download uses the same exit IP. `{sid}` in the proxy URL = sticky residential session. | `advanced/proxy_manager.py` |
+| PO tokens | `bgutil-ytdlp-pot-provider` plugin + provider server (started by `start.sh` in the Docker image). Strategy order adapts to whether the server is up. | `advanced/pot_provider.py`, `Dockerfile` |
+| Speed | Identical requests cached (`CACHE_TTL`); identical concurrent requests share one extraction; the download falls back to the same ladder. | `engine/metadata_extractor.py` |
+| Freshness | `DOWNFLOW_AUTO_UPDATE=stable|nightly` upgrades yt-dlp in the background and hot-reloads it; `POST /api/v1/admin/update-ytdlp` does it on demand. | `advanced/updater.py` |
+
+`GET /api/v1/admin/antiblock` shows proxy health, PO provider status, the remembered routes and the yt-dlp version.
+
+**What this cannot do:** nothing makes a datacenter IP look residential. If YouTube has flagged your host's IP range, the
+reliable fix is a residential/mobile proxy in `DOWNFLOW_PROXY` (use the provider's sticky-session syntax, or `{sid}`).
+PO tokens and cookies only help on IPs that are not already blocked.
+
+**Deploy (Render):** use a *Docker* service (`render.yaml` / `Dockerfile`) so the PO-token server runs next to the API.
+Put the cookie file in *Environment > Secret Files* as `youtube.txt` (read-only: no automatic cookie write-back), or
+upload it from the admin Cookies tab (lost on redeploy unless you attach a disk). Change the default admin password with
+`DOWNFLOW_ADMIN_USER` / `DOWNFLOW_ADMIN_PASS`.
+
+Tests: `python tests/test_antiblock.py` (offline).
+
 ## Cookies, proxy and anti-bot settings
 
 ### YouTube cookies

@@ -6,3 +6,4 @@ fake-useragent
 pydantic
 termux-playwright
 requests
+bgutil-ytdlp-pot-provider==2.0.2

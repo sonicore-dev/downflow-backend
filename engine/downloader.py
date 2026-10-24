@@ -31,7 +31,8 @@ from urllib.parse import quote, urljoin
 from advanced import ErrorCode, ExtractionError, get_config
 from advanced.cookie_manager import cli_args, cookie_options, cookies_active
 from advanced.proxy_manager import pick_proxy
-from advanced.stealth import COOKIE_CLIENTS, impersonation_available
+from advanced import pot_provider
+from advanced.stealth import impersonation_available, is_youtube
 from advanced.url_security import is_public_media_url
 from helpers import metrics
 
@@ -454,22 +455,36 @@ def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> I
     sel = "b/bv*" if ("+" in selector or selector in ("bv*+ba/b", "best")) else selector
     proxy = proxy or pick_proxy(config, page_url)
     cookies = cookies_active(config)
-    clients = ",".join(config.yt_player_clients or (COOKIE_CLIENTS if cookies else ["tv", "web_safari", "mweb"]))
-    yt_extra = [f"player_client={clients}"]
-    if config.yt_po_token:
-        yt_extra += [f"po_token={t}" for t in config.yt_po_token]
-    if config.yt_visitor_data:
-        yt_extra.append(f"visitor_data={config.yt_visitor_data}")
-    ladders = [["--extractor-args", "youtube:" + ";".join(yt_extra)]]
-    if impersonation_available():
-        ladders.append(["--impersonate", "chrome"])
-    if not cookies:
-        ladders.append(["--extractor-args", "youtube:player_client=android_vr,ios"])
+
+    def yt(clients: str) -> list[str]:
+        extra = [f"player_client={clients}"]
+        if config.yt_po_token:
+            extra += [f"po_token={t}" for t in config.yt_po_token]
+        if config.yt_visitor_data:
+            extra.append(f"visitor_data={config.yt_visitor_data}")
+        args = ["--extractor-args", "youtube:" + ";".join(extra)]
+        if config.pot_url:
+            args += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={config.pot_url}"]
+        return args
+
+    if is_youtube(page_url):
+        plain: list[tuple[list[str], bool]] = []
+        if config.yt_player_clients:
+            plain.append((yt(",".join(config.yt_player_clients)), False))
+        plain += [(yt("mweb,web_safari" if pot_provider.alive(config) else "web_safari"), False),
+                  (yt("tv"), False), (yt("android_vr,ios"), False)]
+        logged = [(yt("web_safari,web,mweb,tv"), True), (yt("tv,mweb,web_embedded"), True)] \
+            if cookies and config.cookie_policy != "never" else []
+        ladders = logged + plain if config.cookie_policy == "first" else plain + logged
     else:
-        ladders.append(["--extractor-args", "youtube:player_client=tv,mweb,web_embedded"])
+        ladders = [([], False)]
+        if cookies:
+            ladders.append(([], True))
+    if impersonation_available():
+        ladders.insert(min(1, len(ladders)), (["--impersonate", "chrome"], False))
     with cookie_options(config) as copts:
         base = [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--ignore-config", "--no-playlist",
-                "--no-part", "--no-cache-dir", "-N", "4", "-f", sel, "-o", "-", *cli_args(copts)]
+                "--no-part", "--no-cache-dir", "-N", "4", "-f", sel, "-o", "-"]
         if config.force_ipv4:
             base.append("-4")
         if config.sleep_requests:
@@ -479,8 +494,8 @@ def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> I
                      "--max-sleep-interval", str(max(config.max_sleep_interval, config.sleep_interval))]
         if proxy:
             base += ["--proxy", proxy]
-        for n, extra in enumerate(ladders, 1):
-            cmd = [*base, *extra, page_url]
+        for n, (extra, with_cookies) in enumerate(ladders, 1):
+            cmd = [*base, *(cli_args(copts) if with_cookies else []), *extra, page_url]
             log.info("fetch yt-dlp stream %d/%d", n, len(ladders))
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             first = proc.stdout.read(CHUNK)

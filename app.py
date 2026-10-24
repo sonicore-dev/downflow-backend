@@ -59,6 +59,8 @@ async def _lifespan(application):
     # (and reported as failed) when the application shuts down.
     import asyncio
     watchdog = asyncio.create_task(_cookie_watchdog())
+    from advanced import get_config, updater
+    updater.start(get_config())
     async with _base_lifespan(application) as state:
         try:
             yield state

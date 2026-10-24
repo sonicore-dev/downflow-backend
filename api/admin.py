@@ -144,6 +144,33 @@ async def config():
     return cfg
 
 
+@admin.get("/antiblock")
+async def antiblock():
+    """Live view of the anti-blocking layer: proxy health, PO-token provider, strategy memory, yt-dlp version."""
+    from advanced import pot_provider, proxy_manager, strategy_engine, updater
+    cfg = get_config()
+    return {
+        "proxies": proxy_manager.stats(cfg),
+        "pot_provider": await asyncio.to_thread(pot_provider.status, cfg),
+        "strategies": strategy_engine.memory_snapshot(),
+        "ytdlp": updater.status(),
+        "impersonation": impersonation_available(),
+        "cookie_policy": cfg.cookie_policy,
+        "race": {"width": cfg.race_width, "hedge_delay": cfg.hedge_delay},
+    }
+
+
+class UpdateBody(BaseModel):
+    channel: str = "stable"
+
+
+@admin.post("/update-ytdlp")
+async def update_ytdlp(body: UpdateBody):
+    from advanced import updater
+    channel = body.channel if body.channel in ("stable", "nightly") else "stable"
+    return await asyncio.to_thread(updater.update_now, channel)
+
+
 class CookieText(BaseModel):
     text: str
 

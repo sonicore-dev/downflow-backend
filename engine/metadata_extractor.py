@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import re
+import shutil
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -38,10 +41,10 @@ from advanced import (
     sanitize_url,
 )
 from advanced.cookie_manager import cookie_options, cookies_active
-from advanced.proxy_manager import pick_proxy, redact
+from advanced import proxy_manager, strategy_engine
+from advanced.proxy_manager import redact
 from advanced.header_manager import build_headers
 from helpers import metrics
-from advanced.stealth import build_strategies
 from advanced.url_security import is_public_media_url, resolve_redirects, validate_url
 
 __all__ = ["FORMAT_ALIASES", "STAGES", "extract", "get_engine_info", "precheck_request"]
@@ -218,60 +221,79 @@ def _run_yt_dlp(url: str, opts: dict[str, Any]) -> dict[str, Any]:
         return ydl.sanitize_info(info)
 
 
-_FALLBACK_CODES = {ErrorCode.AUTH_REQUIRED, ErrorCode.EXTRACTOR_OUTDATED, ErrorCode.NO_FORMATS,
-                   ErrorCode.INTERNAL_ERROR, ErrorCode.NETWORK_ERROR, ErrorCode.RATE_LIMITED}
-
-
 def _run_strategies(url: str, base_opts: dict[str, Any], policy: RetryPolicy, deadline: float,
-                    config: ExtractorConfig, on_retry, report) -> dict[str, Any]:
-    """Try each access strategy (see advanced.stealth) until one gets through."""
-    strategies = build_strategies(url, config)
+                    config: ExtractorConfig, on_retry, report) -> tuple[dict[str, Any], Optional[str]]:
+    """Run the access strategies (see advanced.strategy_engine). Returns ``(info, proxy_used)``."""
     quick = RetryPolicy(max_attempts=2, base_delay=policy.base_delay, max_delay=policy.max_delay,
                         rate_limit_max_attempts=1)
-    last: Optional[ExtractionError] = None
-    for i, (name, overlay) in enumerate(strategies, 1):
-        if time.monotonic() >= deadline:
-            break
-        opts = {**base_opts, **{k: v for k, v in overlay.items() if k not in ("http_headers", "extractor_args")}}
+    main_cookie = base_opts.get("cookiefile")
+    cookie_copies: dict[str, str] = {}      # strategy name -> its private copy of the cookie file
+
+    def attempt(name: str, overlay: dict[str, Any], proxy: Optional[str]) -> dict[str, Any]:
+        opts = {**base_opts}
+        opts.update({k: v for k, v in overlay.items()
+                     if k not in ("http_headers", "extractor_args") and not k.startswith("_")})
         opts["http_headers"] = {**base_opts.get("http_headers", {}), **overlay.get("http_headers", {})}
         if "extractor_args" in overlay:
             opts["extractor_args"] = overlay["extractor_args"]
-        if i > 1:
-            report("retrying", f"Trying another access method ({name})")
-        log.info("try   %s %d/%d", name, i, len(strategies))
-        try:
-            info = run_with_retries(lambda: _run_yt_dlp(url, opts), quick, deadline, on_retry=on_retry)
-            if i > 1:
-                log.info("ok    unlocked via %s", name)
-            return info
-        except ExtractionError as err:
-            last = err
-            log.warning("block %s -> %s", name, err.code.value)
-            if err.code not in _FALLBACK_CODES:
-                raise
-    raise last or ExtractionError(ErrorCode.TIMEOUT)
+        if overlay.get("_cookies") is False:
+            opts.pop("cookiefile", None)
+            opts.pop("cookiesfrombrowser", None)
+        elif opts.get("cookiefile"):
+            # parallel attempts must not share one cookie file (yt-dlp rewrites it on close)
+            copy = f"{opts['cookiefile']}.{uuid.uuid4().hex[:8]}"
+            shutil.copyfile(opts["cookiefile"], copy)
+            os.chmod(copy, 0o600)
+            opts["cookiefile"] = copy
+            cookie_copies[name] = copy
+        if proxy:
+            opts["proxy"] = _validated_proxy(proxy)
+        else:
+            opts.pop("proxy", None)
+        return run_with_retries(lambda: _run_yt_dlp(url, opts), quick, deadline, on_retry=on_retry)
+
+    info, proxy, name = strategy_engine.run(url, config, attempt, deadline, report)
+    winner_copy = cookie_copies.get(name)
+    if winner_copy and main_cookie:
+        try:                                  # keep cookies YouTube rotated during the winning attempt
+            shutil.copyfile(winner_copy, main_cookie)
+        except OSError:
+            pass
+    return info, proxy
 
 
 _CACHE: dict[tuple, tuple[float, dict]] = {}
 _CACHE_LOCK = threading.Lock()
-CACHE_TTL = 300.0
-CACHE_MAX = 128
 
 
-def _cache_get(key: tuple) -> Optional[dict]:
+def _cache_get(key: tuple, ttl: float) -> Optional[dict]:
     with _CACHE_LOCK:
         hit = _CACHE.get(key)
-        if hit and time.monotonic() - hit[0] < CACHE_TTL:
+        if hit and time.monotonic() - hit[0] < ttl:
             return copy.deepcopy(hit[1])
         _CACHE.pop(key, None)
     return None
 
 
-def _cache_put(key: tuple, value: dict) -> None:
+def _cache_put(key: tuple, value: dict, cap: int) -> None:
     with _CACHE_LOCK:
-        if len(_CACHE) >= CACHE_MAX:
+        while len(_CACHE) >= cap:
             _CACHE.pop(min(_CACHE, key=lambda k: _CACHE[k][0]), None)
         _CACHE[key] = (time.monotonic(), copy.deepcopy(value))
+
+
+class _Flight:
+    """One in-progress extraction that identical concurrent requests wait for instead of repeating."""
+    __slots__ = ("event", "result", "error")
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.result: Optional[dict] = None
+        self.error: Optional[ExtractionError] = None
+
+
+_FLIGHTS: dict[tuple, _Flight] = {}
+_FLIGHT_LOCK = threading.Lock()
 
 
 def extract(
@@ -292,11 +314,15 @@ def extract(
     ``progress(stage, message)`` is called at each real lifecycle stage (see
     ``STAGES``); ``cancelled()`` is polled between stages and before retries.
     Neither couples the engine to any web framework.
+
+    Speed: identical requests are served from a short-lived cache, identical *concurrent* requests share
+    one extraction, and the strategy engine remembers which access method last worked for each site.
     """
     config = config or get_config()
     started = time.monotonic()
     deadline = started + (timeout or config.request_timeout)
     safe_url = ""
+    flight: Optional[_Flight] = None
     try:
         def report(stage: str, message: str) -> None:
             if cancelled is not None and cancelled():
@@ -313,13 +339,29 @@ def extract(
         normalized = validate_url(url, config)
         safe_url = sanitize_url(normalized)
         cache_key = (normalized, selector, bool(metadata_only))
-        cached = _cache_get(cache_key)
+        cached = _cache_get(cache_key, config.cache_ttl)
         if cached is not None:
             metrics.inc("cache_hits")
             metrics.inc("extract_ok")
             log.info("done  %s · cache hit · %.1fs", cached["platform"]["key"], time.monotonic() - started)
             report("resolving_formats", "Loaded from cache")
             return cached
+
+        with _FLIGHT_LOCK:
+            existing = _FLIGHTS.get(cache_key)
+            if existing is None:
+                flight = _FLIGHTS[cache_key] = _Flight()
+        if existing is not None:
+            report("extracting_metadata", "Joining an identical request already in progress")
+            if existing.event.wait(max(1.0, deadline - time.monotonic())):
+                if existing.error is not None:
+                    raise existing.error
+                if existing.result is not None:
+                    metrics.inc("cache_hits")
+                    metrics.inc("extract_ok")
+                    return copy.deepcopy(existing.result)
+            # the leader failed to deliver in time: do our own extraction below
+
         resolve_redirects(normalized, config)
         report("initializing_extractor", "Connecting to the extractor")
 
@@ -330,33 +372,46 @@ def extract(
             rate_limit_max_attempts=config.retry_rate_limit_attempts,
         )
         with cookie_options(config) as cookie_opts:
-            proxy = pick_proxy(config, normalized)
-            if proxy:
-                log.info("proxy %s", redact(proxy))
             opts = build_ydl_options(config, metadata_only=metadata_only, format_selector=selector,
-                                     cookie_opts=cookie_opts, proxy=proxy)
+                                     cookie_opts=cookie_opts, proxy=None)
             report("extracting_metadata", "Extracting video information")
 
             def on_retry(error: ExtractionError, attempt: int, delay: float) -> None:
                 report("retrying", f"Temporary problem ({error.code.value}); retrying in {delay:.0f}s")
 
-            info = _run_strategies(normalized, opts, policy, deadline, config, on_retry, report)
+            info, used_proxy = _run_strategies(normalized, opts, policy, deadline, config, on_retry, report)
 
+        if used_proxy:                         # media links are IP-bound: the download must use this exit IP
+            proxy_manager.bind(normalized, used_proxy, config.proxy_affinity_ttl)
+            log.info("proxy %s", redact(used_proxy))
         report("resolving_formats", "Resolving available formats and media URLs")
         result = normalize_result(info, config, metadata_only=metadata_only, format_selector=selector,
                                   input_url=normalized)
-        _cache_put(cache_key, result)
+        _cache_put(cache_key, result, config.cache_max)
+        if flight is not None:
+            flight.result = copy.deepcopy(result)
         metrics.inc("extract_ok")
         metrics.platform(result["platform"]["key"] or "unknown")
         log.info("done  %s · %s · %.1fs", result["platform"]["key"], safe_url, time.monotonic() - started)
         return result
     except ExtractionError as err:
         _log_failure(err, safe_url, config)
-        raise _adjust_for_cookies(err, config)
+        err = _adjust_for_cookies(err, config)
+        if flight is not None:
+            flight.error = err
+        raise err
     except Exception as exc:  # noqa: BLE001
         err = classify_exception(exc)
         _log_failure(err, safe_url, config)
-        raise _adjust_for_cookies(err, config) from None
+        err = _adjust_for_cookies(err, config)
+        if flight is not None:
+            flight.error = err
+        raise err from None
+    finally:
+        if flight is not None:
+            flight.event.set()
+            with _FLIGHT_LOCK:
+                _FLIGHTS.pop(cache_key, None)
 
 
 def _adjust_for_cookies(err: ExtractionError, config: ExtractorConfig) -> ExtractionError:

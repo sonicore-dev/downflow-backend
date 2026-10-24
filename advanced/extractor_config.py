@@ -112,7 +112,10 @@ class ExtractorConfig:
     # Proxy / cookies
     proxy: Optional[str] = None
     proxy_list: tuple[str, ...] = ()         # optional pool (rotating / residential); see advanced/proxy_manager.py
-    proxy_mode: str = "sticky"               # sticky (same proxy per video) | round_robin | random
+    proxy_mode: str = "sticky"               # sticky (same proxy per video) | round_robin | random | weighted
+    proxy_cooldown: float = 90.0             # base seconds a blocked/dead proxy is parked (doubles per failure)
+    proxy_affinity_ttl: float = 7200.0       # remember which proxy served a URL (IP-bound media links)
+    proxy_direct_fallback: bool = True       # connect directly if every configured proxy is unusable
     cookie_file: Optional[str] = None        # explicit path; default is <cookies_dir>/youtube.txt
     cookies_dir: str = str(BASE_DIR / "cookies")
     cookies_from_browser: Optional[str] = None   # yt-dlp spec: BROWSER[+KEYRING][:PROFILE][::CONTAINER]
@@ -130,6 +133,14 @@ class ExtractorConfig:
     yt_player_clients: tuple[str, ...] = ()  # empty = automatic (cookie-friendly clients when cookies are active)
     yt_po_token: tuple[str, ...] = ()        # e.g. "web.gvs+XXXX" (see yt-dlp PO Token guide)
     yt_visitor_data: Optional[str] = None
+    pot_url: Optional[str] = None            # bgutil PO-token provider server (default http://127.0.0.1:4416)
+    cookie_policy: str = "last"              # last = cookie-less routes first | first | never
+    race_width: int = 2                      # max strategies running in parallel (1 = strictly sequential)
+    hedge_delay: float = 5.0                 # start the next strategy in parallel after this many seconds (0 = off)
+    cache_ttl: float = 900.0                 # seconds an identical extraction is served from memory
+    cache_max: int = 256
+    auto_update: str = "off"                 # off | stable | nightly -- upgrade yt-dlp in the background
+    update_interval: float = 21600.0         # seconds between update checks
     # Headers
     rotate_user_agent: bool = False
     user_agent_file: str = str(DEFAULT_USER_AGENT_FILE)
@@ -174,6 +185,9 @@ class ExtractorConfig:
             proxy=_env("PROXY"),
             proxy_list=_list("PROXY_LIST", d.proxy_list) or _proxy_file(),
             proxy_mode=(_env("PROXY_MODE") or d.proxy_mode).lower(),
+            proxy_cooldown=_float("PROXY_COOLDOWN", d.proxy_cooldown, 5, 1800),
+            proxy_affinity_ttl=_float("PROXY_AFFINITY_TTL", d.proxy_affinity_ttl, 60, 86400),
+            proxy_direct_fallback=_bool("PROXY_DIRECT_FALLBACK", d.proxy_direct_fallback),
             cookie_file=_env("COOKIE_FILE"),
             cookies_dir=_env("COOKIES_DIR") or d.cookies_dir,
             cookies_from_browser=_env("COOKIES_FROM_BROWSER"),
@@ -190,6 +204,14 @@ class ExtractorConfig:
             yt_player_clients=_list("YT_PLAYER_CLIENTS", d.yt_player_clients),
             yt_po_token=_list("YT_PO_TOKEN", d.yt_po_token),
             yt_visitor_data=_env("YT_VISITOR_DATA"),
+            pot_url=_env("POT_URL"),
+            cookie_policy=(_env("COOKIE_POLICY") or d.cookie_policy).lower(),
+            race_width=_int("RACE_WIDTH", d.race_width, 1, 4),
+            hedge_delay=_float("HEDGE_DELAY", d.hedge_delay, 0, 60),
+            cache_ttl=_float("CACHE_TTL", d.cache_ttl, 0, 7200),
+            cache_max=_int("CACHE_MAX", d.cache_max, 1, 4096),
+            auto_update=(_env("AUTO_UPDATE") or d.auto_update).lower(),
+            update_interval=_float("UPDATE_INTERVAL", d.update_interval, 600, 604800),
             rotate_user_agent=_bool("ROTATE_USER_AGENT", d.rotate_user_agent),
             user_agent_file=_env("USER_AGENT_FILE") or d.user_agent_file,
             accept_language=_env("ACCEPT_LANGUAGE") or d.accept_language,

@@ -1,0 +1,7 @@
+.git
+__pycache__
+*.pyc
+cookies/*.txt
+data/.secret
+.env
+*.zip

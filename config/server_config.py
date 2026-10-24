@@ -1,3 +1,4 @@
+import os
 import socket
 from helpers.logger import setup_logging
 setup_logging()
@@ -30,4 +31,4 @@ app = FastAPI(
 )
 
 SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 8000
+SERVER_PORT = int(os.environ.get("PORT") or 8000)   # Render/Heroku-style hosts inject PORT
