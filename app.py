@@ -15,7 +15,7 @@ from config.server_config import app
 from api.admin import admin as admin_router, router as auth_router
 from api.apis import router, shutdown_extraction
 from helpers.auth import is_authed
-from dir_config import WEB_DIR, INDEX_FILE, UPDATE_CHECK_FILE, DOWNLOAD_VIDEO_FILE
+from dir_config import WEB_DIR, INDEX_FILE, UPDATE_CHECK_FILE, DOWNLOAD_VIDEO_FILE, INSTANT_SAVE_FILE
 
 app.include_router(router)
 app.include_router(auth_router)
@@ -94,12 +94,16 @@ app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=Fal
                    allow_headers=["Content-Type", "Accept", "Range"],
                    expose_headers=["Content-Disposition", "Content-Length", "Content-Range", "Retry-After"], max_age=86400)
 
+# Added last = outermost: request id, load shedding, rate limit, body cap, access log, security headers.
+from helpers.middleware import GuardMiddleware
+app.add_middleware(GuardMiddleware)
+
 _PAGES: dict = {}      # path -> (mtime, html)
 _PARTIALS = WEB_DIR / "partials"
 
 # Header navigation, shared by every page. To change the list for one page, add an
 # entry to PAGE_NAV keyed by the URL path (it replaces DEFAULT_NAV for that page).
-DEFAULT_NAV = [("Home", "/"), ("Download", "/download/"), ("Version", "/check-updates"),
+DEFAULT_NAV = [("Home", "/"), ("Instant Save", "/instant/"), ("Proper Save", "/download/"), ("Version", "/check-updates"),
                ("API docs", "/docs"), ("Admin", "/admin")]
 PAGE_NAV: dict[str, list[tuple[str, str]]] = {}
 
@@ -189,6 +193,11 @@ async def logout_page():
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie("downflow_session", path="/")
     return resp
+
+
+@app.get("/instant/", include_in_schema=False)
+async def instant_save_page(request: Request):
+    return _guard(request, INSTANT_SAVE_FILE)
 
 
 @app.get("/download/", include_in_schema=False)

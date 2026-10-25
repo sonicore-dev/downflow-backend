@@ -158,6 +158,7 @@ def build_ydl_options(
     format_selector: str,
     cookie_opts: dict[str, Any],
     proxy: Optional[str] = None,
+    single: bool = False,
 ) -> dict[str, Any]:
     """Construct the yt-dlp option dict (no downloads, no user config files)."""
     opts: dict[str, Any] = {
@@ -193,6 +194,10 @@ def build_ydl_options(
     if config.sleep_interval:
         opts["sleep_interval"] = config.sleep_interval
         opts["max_sleep_interval"] = max(config.max_sleep_interval, config.sleep_interval)
+    if single:                      # one video only: never walk a playlist, skip the flat listing
+        opts["noplaylist"] = True
+        opts.pop("extract_flat", None)
+        opts.pop("playlistend", None)
     opts.update(cookie_opts)
     return opts
 
@@ -222,7 +227,7 @@ def _run_yt_dlp(url: str, opts: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_strategies(url: str, base_opts: dict[str, Any], policy: RetryPolicy, deadline: float,
-                    config: ExtractorConfig, on_retry, report) -> tuple[dict[str, Any], Optional[str]]:
+                    config: ExtractorConfig, on_retry, report, attempt_base: int = 0) -> tuple[dict[str, Any], Optional[str]]:
     """Run the access strategies (see advanced.strategy_engine). Returns ``(info, proxy_used)``."""
     quick = RetryPolicy(max_attempts=2, base_delay=policy.base_delay, max_delay=policy.max_delay,
                         rate_limit_max_attempts=1)
@@ -252,7 +257,7 @@ def _run_strategies(url: str, base_opts: dict[str, Any], policy: RetryPolicy, de
             opts.pop("proxy", None)
         return run_with_retries(lambda: _run_yt_dlp(url, opts), quick, deadline, on_retry=on_retry)
 
-    info, proxy, name = strategy_engine.run(url, config, attempt, deadline, report)
+    info, proxy, name = strategy_engine.run(url, config, attempt, deadline, report, attempt_base)
     winner_copy = cookie_copies.get(name)
     if winner_copy and main_cookie:
         try:                                  # keep cookies YouTube rotated during the winning attempt
@@ -305,6 +310,8 @@ def extract(
     timeout: Optional[float] = None,
     progress: Optional[ProgressCallback] = None,
     cancelled: Optional[Callable[[], bool]] = None,
+    single: bool = False,
+    attempt: int = 0,
 ) -> dict[str, Any]:
     """Extract metadata (and media URLs unless ``metadata_only``) for ``url``.
 
@@ -338,8 +345,8 @@ def extract(
         selector = resolve_format_selector(format, config)
         normalized = validate_url(url, config)
         safe_url = sanitize_url(normalized)
-        cache_key = (normalized, selector, bool(metadata_only))
-        cached = _cache_get(cache_key, config.cache_ttl)
+        cache_key = (normalized, selector, bool(metadata_only), bool(single))
+        cached = _cache_get(cache_key, config.cache_ttl) if attempt == 0 else None   # a retry wants a fresh route
         if cached is not None:
             metrics.inc("cache_hits")
             metrics.inc("extract_ok")
@@ -373,13 +380,13 @@ def extract(
         )
         with cookie_options(config) as cookie_opts:
             opts = build_ydl_options(config, metadata_only=metadata_only, format_selector=selector,
-                                     cookie_opts=cookie_opts, proxy=None)
+                                     cookie_opts=cookie_opts, proxy=None, single=single)
             report("extracting_metadata", "Extracting video information")
 
             def on_retry(error: ExtractionError, attempt: int, delay: float) -> None:
                 report("retrying", f"Temporary problem ({error.code.value}); retrying in {delay:.0f}s")
 
-            info, used_proxy = _run_strategies(normalized, opts, policy, deadline, config, on_retry, report)
+            info, used_proxy = _run_strategies(normalized, opts, policy, deadline, config, on_retry, report, attempt)
 
         if used_proxy:                         # media links are IP-bound: the download must use this exit IP
             proxy_manager.bind(normalized, used_proxy, config.proxy_affinity_ttl)

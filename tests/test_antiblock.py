@@ -267,7 +267,7 @@ def test_identical_concurrent_requests_share_one_extraction():
     me.validate_url = lambda u, c: u
     me.resolve_redirects = lambda u, c: None
 
-    def slow(url, opts, policy, deadline, config, on_retry, report):
+    def slow(url, opts, policy, deadline, config, on_retry, report, attempt_base=0):
         calls.append(1)
         time.sleep(0.5)
         return {"id": "v"}, None
@@ -283,6 +283,88 @@ def test_identical_concurrent_requests_share_one_extraction():
         assert len(calls) == 1
     finally:
         me.validate_url, me.resolve_redirects, me._run_strategies, me.normalize_result = saved
+
+
+# ---------------------------------------------------------------- instant save
+def _instant(monkey_extract, **kw):
+    from engine import instant
+    saved = instant.extract
+    instant.extract = monkey_extract
+    try:
+        return instant.instant_extract("https://example.com/v", kw.pop("kind", "video"), cfg(**kw))
+    finally:
+        instant.extract = saved
+
+
+GOOD = {"title": "T", "media": {"streams": [{"role": "combined", "ext": "mp4", "resolution": "720p"}]}, "platform": {"name": "X"}}
+
+
+def test_instant_retries_transient_errors_and_passes_the_right_selector():
+    seen = []
+
+    def fake(url, **kw):
+        seen.append((kw["format"], kw["single"], kw["attempt"]))
+        if len(seen) < 3:
+            raise _err(ErrorCode.NETWORK_ERROR)
+        return GOOD
+
+    assert _instant(fake, instant_attempts=3)["title"] == "T"
+    assert [a for _, _, a in seen] == [0, 1, 2] and all(single for _, single, _ in seen)   # fresh route per retry
+    assert seen[0][0] == "b/bv*+ba/b"
+    seen.clear()
+    _instant(lambda url, **kw: seen.append(kw["format"]) or GOOD, kind="audio")
+    assert seen == ["ba/b"]
+
+
+def test_instant_does_not_hammer_a_blocked_single_ip_but_gives_up_after_three():
+    calls = []
+
+    def blocked(url, **kw):
+        calls.append(1)
+        raise _err(ErrorCode.IP_BLOCKED)
+
+    try:
+        _instant(blocked)
+        raise AssertionError("expected error")
+    except ExtractionError as e:
+        assert e.code is ErrorCode.IP_BLOCKED and len(calls) == 1
+    calls.clear()
+    try:
+        _instant(blocked, proxy_list=("http://a.example.com:1", "http://b.example.com:1"))
+    except ExtractionError:
+        pass
+    assert len(calls) == 3                                         # several exits: worth trying again
+    calls.clear()
+
+    def flaky(url, **kw):
+        calls.append(1)
+        raise _err(ErrorCode.TIMEOUT)
+
+    try:
+        _instant(flaky)
+    except ExtractionError:
+        pass
+    assert len(calls) == 3
+
+
+def test_instant_rejects_playlists_without_retrying():
+    calls = []
+
+    def playlist(url, **kw):
+        calls.append(1)
+        return {"title": "A playlist", "entries": []}
+
+    try:
+        _instant(playlist)
+        raise AssertionError("expected error")
+    except ExtractionError as e:
+        assert "single video" in e.message and len(calls) == 1
+
+
+def test_instant_summary_is_ui_friendly():
+    from engine.instant import summarise
+    s = summarise(GOOD, "video")
+    assert s["ext"] == "mp4" and s["resolution"] == "720p" and s["merged"] is False
 
 
 if __name__ == "__main__":

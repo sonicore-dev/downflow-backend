@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from advanced import ErrorCode, ExtractionError, classify_exception, get_config
 from api.version_prefix import API_PREFIX
 from engine import extract, precheck_request
-from helpers import TaskStatus, get_health_status, get_status_manager, get_update_data
+from helpers import metrics, TaskStatus, get_health_status, get_status_manager, get_update_data
 from helpers import auth as _auth, ratelimit as _rl
 
 log = logging.getLogger("downflow.api")
@@ -51,6 +51,14 @@ class ExtractRequest(BaseModel):
         max_length=200,
         description="best | best_single | worst | audio | video, or a yt-dlp format selector",
     )
+
+
+class InstantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(..., max_length=8192, description="http(s) link of a single video")
+    kind: Literal["video", "audio"] = "video"
+    attempt: int = Field(0, ge=0, le=6, description="set by the client after a failed download to get a fresh route")
 
 
 class _ExtractionRunner:
@@ -134,6 +142,54 @@ class _ExtractionRunner:
             if acquired:
                 self.semaphore.release()
 
+    async def instant(self, request: InstantRequest) -> tuple[str, dict]:
+        """Instant Save: extract the single best format (with retries) and register it as a downloadable task."""
+        from engine.instant import instant_extract
+
+        config, manager = self.config, self.manager
+        if self.shutting_down:
+            raise ExtractionError(ErrorCode.CANCELLED)
+        if self.waiting >= config.max_queued:
+            raise ExtractionError(ErrorCode.BUSY, retry_after=5)
+        status = manager.create()
+        task_id = status["task_id"]
+        self.waiting += 1
+        try:
+            await asyncio.wait_for(self.semaphore.acquire(), timeout=config.queue_wait)
+        except asyncio.TimeoutError:
+            manager.fail(task_id, ExtractionError(ErrorCode.BUSY, retry_after=5).to_dict())
+            raise ExtractionError(ErrorCode.BUSY, retry_after=5) from None
+        finally:
+            self.waiting -= 1
+        manager.update(task_id, status=TaskStatus.PROCESSING, stage="extracting_metadata",
+                       message="Finding the best format")
+        future = asyncio.get_running_loop().run_in_executor(
+            self.executor,
+            lambda: instant_extract(request.url, request.kind, config, attempt0=request.attempt,
+                                    cancelled=lambda: self.shutting_down))
+
+        def _done(fut: "asyncio.Future") -> None:
+            self.semaphore.release()
+            if not fut.cancelled():
+                fut.exception()
+
+        future.add_done_callback(_done)
+        try:
+            result = await asyncio.wait_for(asyncio.shield(future), timeout=config.instant_budget + 10)
+        except asyncio.TimeoutError:
+            err = ExtractionError(ErrorCode.TIMEOUT)
+            manager.fail(task_id, err.to_dict())
+            raise err from None
+        except ExtractionError as err:
+            manager.fail(task_id, err.to_dict())
+            raise
+        except Exception as exc:  # noqa: BLE001
+            err = classify_exception(exc)
+            manager.fail(task_id, err.to_dict())
+            raise err from None
+        manager.complete(task_id, result)
+        return task_id, result
+
     async def shutdown(self) -> None:
         self.shutting_down = True
         for job in list(self._jobs):
@@ -214,6 +270,39 @@ async def extract_video(payload: ExtractRequest, request: Request):
     }
 
 
+@router.post("/instant/")
+async def instant_save(payload: InstantRequest, request: Request):
+    """Instant Save: one call, best format chosen automatically, up to 3 attempts. Then GET ``download_url``."""
+    from engine.instant import summarise
+
+    limited = _limited(request, "extract")
+    if limited:
+        return limited
+    runner = _get_runner()
+    try:
+        await asyncio.to_thread(precheck_request, payload.url, None, runner.config)
+        task_id, result = await runner.instant(payload)
+    except ExtractionError as error:
+        metrics.inc("instant_fail")
+        return _error_response(error)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("unexpected error in /instant/")
+        metrics.inc("instant_fail")
+        return _error_response(classify_exception(exc))
+    metrics.inc("instant_ok")
+    return {"status": "ok", "task_id": task_id, "download_url": f"{API_PREFIX}/download/{task_id}/",
+            "info": summarise(result, payload.kind), "error": None}
+
+
+async def _mgr(method: str, *args):
+    """Call the task store; Redis-backed stores block on network I/O, so they run in a worker thread."""
+    mgr = get_status_manager()
+    fn = getattr(mgr, method)
+    if getattr(mgr, "blocking", False):
+        return await asyncio.to_thread(fn, *args)
+    return fn(*args)
+
+
 def _unknown_task() -> JSONResponse:
     return _error_response(ExtractionError(ErrorCode.TASK_NOT_FOUND))
 
@@ -222,7 +311,7 @@ def _unknown_task() -> JSONResponse:
 async def extract_status(task_id: str):
     if not _TASK_ID_RE.match(task_id):
         return _unknown_task()
-    status = get_status_manager().get_status(task_id)
+    status = await _mgr("get_status", task_id)
     if status is None:
         return _unknown_task()
     return {"task_id": task_id, **status}
@@ -232,7 +321,7 @@ async def extract_status(task_id: str):
 async def extract_result(task_id: str):
     if not _TASK_ID_RE.match(task_id):
         return _unknown_task()
-    found = get_status_manager().get_result(task_id)
+    found = await _mgr("get_result", task_id)
     if found is None:
         return _unknown_task()
     status, result = found
@@ -268,7 +357,7 @@ async def download_file(task_id: str, request: Request, format_id: Optional[str]
 
     if not _TASK_ID_RE.match(task_id):
         return _unknown_task()
-    found = get_status_manager().get_result(task_id)
+    found = await _mgr("get_result", task_id)
     if found is None or found[1] is None:
         return _unknown_task()
     limited = _limited(request, "download")

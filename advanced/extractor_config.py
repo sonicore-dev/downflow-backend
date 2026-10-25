@@ -85,6 +85,16 @@ def _proxy_file() -> tuple[str, ...]:
     return tuple(l.strip() for l in lines if l.strip() and not l.strip().startswith("#"))
 
 
+def _workers() -> int:
+    raw = (_env("WORKERS") or "1").lower()
+    if raw == "auto":
+        return max(1, min(os.cpu_count() or 1, 8))
+    try:
+        return max(1, min(int(raw), 64))
+    except ValueError:
+        return 1
+
+
 @dataclass(frozen=True)
 class ExtractorConfig:
     # Network
@@ -139,6 +149,25 @@ class ExtractorConfig:
     hedge_delay: float = 5.0                 # start the next strategy in parallel after this many seconds (0 = off)
     cache_ttl: float = 900.0                 # seconds an identical extraction is served from memory
     cache_max: int = 256
+    instant_video_format: str = "b/bv*+ba/b"  # Instant Save: best single file first (no merge), merge only if needed
+    instant_audio_format: str = "ba/b"
+    instant_attempts: int = 3                # extraction attempts for one Instant Save click
+    instant_budget: float = 45.0             # total seconds for all attempts
+    # Scale / overload protection
+    workers: int = 1                         # uvicorn worker processes (needs DOWNFLOW_REDIS_URL when > 1)
+    redis_url: Optional[str] = None          # shared task store + rate limits for multi-worker / multi-instance setups
+    max_inflight: int = 2000                 # requests being handled at once before new ones get a fast 503
+    max_connections: int = 10000             # open sockets per worker (uvicorn limit_concurrency), 0 = unlimited
+    backlog: int = 4096                      # pending TCP connections the OS may queue
+    keepalive: int = 5                       # seconds an idle keep-alive connection is kept
+    recycle_after: int = 0                   # restart a worker after N requests (0 = never; guards slow leaks)
+    api_rate: str = "300/60"                 # per-IP requests/window for all /api/ routes (token bucket)
+    max_body: int = 65536                    # bytes accepted in a public API request body
+    max_ip_streams: int = 4                  # simultaneous file downloads per client IP
+    proxy_hops: int = 1                      # trusted reverse proxies in front of the app (X-Forwarded-For from the right)
+    client_ip_header: Optional[str] = None   # e.g. CF-Connecting-IP; overrides proxy_hops when present
+    access_log_rps: int = 50                 # above this many requests/s only slow/failed ones are logged, plus a summary
+    slow_request: float = 3.0                # seconds after which a request is flagged slow in the log
     auto_update: str = "off"                 # off | stable | nightly -- upgrade yt-dlp in the background
     update_interval: float = 21600.0         # seconds between update checks
     # Headers
@@ -210,6 +239,24 @@ class ExtractorConfig:
             hedge_delay=_float("HEDGE_DELAY", d.hedge_delay, 0, 60),
             cache_ttl=_float("CACHE_TTL", d.cache_ttl, 0, 7200),
             cache_max=_int("CACHE_MAX", d.cache_max, 1, 4096),
+            instant_video_format=_env("INSTANT_VIDEO_FORMAT") or d.instant_video_format,
+            instant_audio_format=_env("INSTANT_AUDIO_FORMAT") or d.instant_audio_format,
+            instant_attempts=_int("INSTANT_ATTEMPTS", d.instant_attempts, 1, 5),
+            instant_budget=_float("INSTANT_BUDGET", d.instant_budget, 8, 180),
+            workers=_workers(),
+            redis_url=_env("REDIS_URL"),
+            max_inflight=_int("MAX_INFLIGHT", d.max_inflight, 10, 1000000),
+            max_connections=_int("MAX_CONNECTIONS", d.max_connections, 0, 1000000),
+            backlog=_int("BACKLOG", d.backlog, 16, 65535),
+            keepalive=_int("KEEPALIVE", d.keepalive, 1, 120),
+            recycle_after=_int("RECYCLE_AFTER", d.recycle_after, 0, 100000000),
+            api_rate=_env("API_RATE") or d.api_rate,
+            max_body=_int("MAX_BODY", d.max_body, 1024, 10485760),
+            max_ip_streams=_int("MAX_IP_STREAMS", d.max_ip_streams, 1, 64),
+            proxy_hops=_int("PROXY_HOPS", d.proxy_hops, 0, 5),
+            client_ip_header=_env("CLIENT_IP_HEADER"),
+            access_log_rps=_int("ACCESS_LOG_RPS", d.access_log_rps, 1, 100000),
+            slow_request=_float("SLOW_REQUEST", d.slow_request, 0.2, 120),
             auto_update=(_env("AUTO_UPDATE") or d.auto_update).lower(),
             update_interval=_float("UPDATE_INTERVAL", d.update_interval, 600, 604800),
             rotate_user_agent=_bool("ROTATE_USER_AGENT", d.rotate_user_agent),

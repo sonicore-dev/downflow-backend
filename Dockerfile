@@ -17,7 +17,8 @@ FROM python:3.12-slim
 ARG BGUTIL_VERSION
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     DOWNFLOW_AUTO_UPDATE=stable \
-    DOWNFLOW_POT_SERVER=1
+    DOWNFLOW_POT_SERVER=1 \
+    DOWNFLOW_COLOR=1
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates \
         libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 \
     && rm -rf /var/lib/apt/lists/*
@@ -27,7 +28,8 @@ COPY --from=pot /src/server /opt/bgutil/server
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt "bgutil-ytdlp-pot-provider==${BGUTIL_VERSION}"
+COPY requirements-prod.txt .
+RUN pip install -r requirements.txt -r requirements-prod.txt "bgutil-ytdlp-pot-provider==${BGUTIL_VERSION}"
 COPY . .
 RUN chmod +x start.sh && mkdir -p data cookies
 EXPOSE 8000

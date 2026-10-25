@@ -105,9 +105,22 @@ async def stats():
     except Exception:  # noqa: BLE001
         ytdlp = None
     mgr = get_status_manager()
+    from helpers import ratelimit
+    from helpers.middleware import state as guard
+    from advanced import get_config
+    cfg = get_config()
+    blocking = getattr(mgr, "blocking", False)
+    tasks = (len(mgr), mgr.active_count())
+    if blocking:
+        tasks = await asyncio.to_thread(lambda: (len(mgr), mgr.active_count()))
     return {
         **metrics.snapshot(),
-        "tasks_in_memory": len(mgr), "tasks_active": mgr.active_count(),
+        "server": {"inflight": guard["inflight"], "peak_inflight": guard["peak"], "max_inflight": cfg.max_inflight,
+                   "shed": guard["shed"], "rate_limited": guard["limited"], "too_large": guard["too_large"],
+                   "stream_denied": guard["stream_denied"], "active_streams": sum(guard["streams"].values()),
+                   "workers": cfg.workers, "state": "redis" if blocking else "memory",
+                   "rate_limit": ratelimit.stats()},
+        "tasks_in_memory": tasks[0], "tasks_active": tasks[1],
         "system": {"python": sys.version.split()[0], "platform": platform.platform(), "pid": os.getpid(),
                    "cpus": os.cpu_count(), "load": list(os.getloadavg()) if hasattr(os, "getloadavg") else None,
                    "memory": _memory()},

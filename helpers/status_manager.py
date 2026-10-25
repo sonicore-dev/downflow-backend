@@ -242,10 +242,17 @@ _manager: Optional[StatusManager] = None
 _manager_lock = threading.Lock()
 
 
-def get_status_manager() -> StatusManager:
+def get_status_manager():
+    """The process-wide task registry: Redis-backed when DOWNFLOW_REDIS_URL works, else in memory."""
     global _manager
     with _manager_lock:
         if _manager is None:
             cfg = get_config()
-            _manager = StatusManager(ttl=cfg.task_ttl, max_tasks=cfg.max_tasks)
+            if cfg.redis_url:
+                from helpers.redis_store import RedisStatusManager, get_redis
+                r = get_redis()
+                if r is not None:
+                    _manager = RedisStatusManager(r, cfg.task_ttl, cfg.max_tasks)
+            if _manager is None:
+                _manager = StatusManager(ttl=cfg.task_ttl, max_tasks=cfg.max_tasks)
         return _manager

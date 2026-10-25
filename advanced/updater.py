@@ -33,9 +33,36 @@ def current_version() -> str:
         return "unknown"
 
 
+class _file_lock:
+    """Cross-process lock (multi-worker deployments): only one worker runs pip at a time."""
+
+    def __enter__(self) -> bool:
+        self.f = None
+        try:
+            import fcntl
+            from .extractor_config import BASE_DIR
+            (BASE_DIR / "data").mkdir(exist_ok=True)
+            self.f = open(BASE_DIR / "data" / ".update.lock", "w")
+            fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:              # Windows: no fcntl, single-process assumed
+            return True
+        except OSError:
+            self.f.close()
+            self.f = None
+            return False
+        return True
+
+    def __exit__(self, *exc) -> None:
+        if self.f:
+            self.f.close()
+
+
 def update_now(channel: str = "stable") -> dict[str, Any]:
     """pip-upgrade yt-dlp and reload it in this process. Returns a small status dict."""
-    with _lock:
+    with _lock, _file_lock() as got:
+        if not got:                      # another worker is already updating; do not run pip twice
+            return {"ok": True, "before": current_version(), "after": current_version(), "changed": False,
+                    "detail": "another worker is updating"}
         before = current_version()
         cmd = [sys.executable, "-m", "pip", "install", "-U", "--disable-pip-version-check", "-q",
                "--break-system-packages", "yt-dlp[default]", "curl_cffi"]

@@ -71,8 +71,8 @@ _fails: dict[str, list[float]] = {}
 
 
 def client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
+    from helpers.netinfo import client_ip as _ip
+    return _ip(request.scope.get("headers", []), request.client.host if request.client else None)
 
 
 def locked(ip: str) -> bool:

@@ -113,7 +113,7 @@ def _summarise(errors: list[ExtractionError]) -> ExtractionError:
 
 
 def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
-        report: Callable[[str, str], None]) -> tuple[dict[str, Any], Optional[str], str]:
+        report: Callable[[str, str], None], attempt_base: int = 0) -> tuple[dict[str, Any], Optional[str], str]:
     """Return ``(info, proxy_used, strategy_name)`` or raise the most informative :class:`ExtractionError`."""
     site = proxy_manager.host_of(url)
     strategies = _MEMORY.order(site, build_strategies(url, config))
@@ -136,7 +136,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
     def launch() -> None:
         nonlocal launched
         name, overlay = pending.pop(0)
-        proxy = proxy_manager.pick_proxy(config, url, host=site, exclude=tried_proxies, attempt=launched)
+        proxy = proxy_manager.pick_proxy(config, url, host=site, exclude=tried_proxies, attempt=attempt_base + launched)
         if proxy:
             tried_proxies.append(proxy)
         if launched:
