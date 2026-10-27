@@ -61,6 +61,22 @@ def run_checks(config: ExtractorConfig) -> list[dict[str, Any]]:
                       "pip install -U yt-dlp-ejs   (or set DOWNFLOW_REMOTE_COMPONENTS=ejs:github)", "error"))
 
     try:
+        from . import db
+        st = db.status()
+        try:
+            db.one("SELECT 1")
+            st = db.status()
+            if st["persistent"]:
+                out.append(_check("database", True, f"Turso · {st['where']}"))
+            else:
+                out.append(_check("database", False, "local SQLite file (erased on redeploy where the disk is ephemeral)",
+                                  "Set DOWNFLOW_TURSO_URL and DOWNFLOW_TURSO_TOKEN so cookies/updates/memory survive redeploys.", "warn"))
+        except db.DbError as exc:
+            out.append(_check("database", False, str(exc), "Check DOWNFLOW_TURSO_URL / DOWNFLOW_TURSO_TOKEN.", "error"))
+    except Exception as exc:  # noqa: BLE001
+        out.append(_check("database", False, exc.__class__.__name__, "", "warn"))
+
+    try:
         import curl_cffi  # noqa: F401
         out.append(_check("TLS impersonation", True, "curl_cffi " + md.version("curl-cffi")))
     except Exception:  # noqa: BLE001

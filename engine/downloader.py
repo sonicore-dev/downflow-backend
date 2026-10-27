@@ -454,7 +454,7 @@ def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> I
     config = get_config()
     sel = "b/bv*" if ("+" in selector or selector in ("bv*+ba/b", "best")) else selector
     proxy = proxy or pick_proxy(config, page_url)
-    cookies = cookies_active(config)
+    cookies = cookies_active(config, page_url)
 
     def yt(clients: str) -> list[str]:
         extra = [f"player_client={clients}"]
@@ -478,11 +478,11 @@ def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> I
         ladders = logged + plain if config.cookie_policy == "first" else plain + logged
     else:
         ladders = [([], False)]
-        if cookies:
-            ladders.append(([], True))
+        if cookies and config.cookie_policy != "never":
+            ladders = [([], True), *ladders] if config.cookie_policy == "first" else [*ladders, ([], True)]
     if impersonation_available():
         ladders.insert(min(1, len(ladders)), (["--impersonate", "chrome"], False))
-    with cookie_options(config) as copts:
+    with cookie_options(config, page_url) as copts:
         base = [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--ignore-config", "--no-playlist",
                 "--no-part", "--no-cache-dir", "-N", "4", "-f", sel, "-o", "-"]
         if config.force_ipv4:

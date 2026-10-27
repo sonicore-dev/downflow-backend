@@ -74,3 +74,29 @@ def snapshot() -> dict:
         base = {"uptime": int(time.time() - START), "counters": dict(_c), "platforms": dict(_platforms.most_common(8))}
     base["traffic"] = traffic()
     return base
+
+
+def export_state() -> dict:
+    with _lock:
+        return {"c": dict(_c), "p": dict(_platforms), "k": dict(_classes), "h": list(_hist)}
+
+
+def restore_state(data: dict) -> None:
+    """Add counters saved before the last restart (called once at start-up)."""
+    if not isinstance(data, dict):
+        return
+    with _lock:
+        for k, v in (data.get("c") or {}).items():
+            if isinstance(v, int) and not k.startswith(("inflight", "active", "running")):
+                _c[k] += v
+        for k, v in (data.get("p") or {}).items():
+            if isinstance(v, int):
+                _platforms[k] += v
+        for k, v in (data.get("k") or {}).items():
+            if isinstance(v, int):
+                _classes[k] += v
+        h = data.get("h")
+        if isinstance(h, list) and len(h) == len(_hist):
+            for i, v in enumerate(h):
+                if isinstance(v, int):
+                    _hist[i] += v

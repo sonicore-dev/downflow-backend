@@ -97,6 +97,19 @@ class _Memory:
 _MEMORY = _Memory(BASE_DIR / "data" / "strategy_memory.json")
 
 
+def memory_export() -> dict[str, str]:
+    with _MEMORY.lock:
+        return dict(_MEMORY.winner)
+
+
+def memory_restore(winner: Any) -> None:
+    if isinstance(winner, dict):
+        with _MEMORY.lock:
+            for k, v in winner.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    _MEMORY.winner.setdefault(k, v)
+
+
 def memory_snapshot() -> dict[str, Any]:
     with _MEMORY.lock:
         return {"winners": dict(_MEMORY.winner),

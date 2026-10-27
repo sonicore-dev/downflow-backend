@@ -378,7 +378,7 @@ def extract(
             max_delay=config.retry_max_delay,
             rate_limit_max_attempts=config.retry_rate_limit_attempts,
         )
-        with cookie_options(config) as cookie_opts:
+        with cookie_options(config, normalized) as cookie_opts:
             opts = build_ydl_options(config, metadata_only=metadata_only, format_selector=selector,
                                      cookie_opts=cookie_opts, proxy=None, single=single)
             report("extracting_metadata", "Extracting video information")
@@ -403,14 +403,14 @@ def extract(
         return result
     except ExtractionError as err:
         _log_failure(err, safe_url, config)
-        err = _adjust_for_cookies(err, config)
+        err = _adjust_for_cookies(err, config, normalized)
         if flight is not None:
             flight.error = err
         raise err
     except Exception as exc:  # noqa: BLE001
         err = classify_exception(exc)
         _log_failure(err, safe_url, config)
-        err = _adjust_for_cookies(err, config)
+        err = _adjust_for_cookies(err, config, normalized)
         if flight is not None:
             flight.error = err
         raise err from None
@@ -421,8 +421,8 @@ def extract(
                 _FLIGHTS.pop(cache_key, None)
 
 
-def _adjust_for_cookies(err: ExtractionError, config: ExtractorConfig) -> ExtractionError:
-    if err.code is ErrorCode.AUTH_REQUIRED and cookies_active(config):
+def _adjust_for_cookies(err: ExtractionError, config: ExtractorConfig, url: str = "") -> ExtractionError:
+    if err.code is ErrorCode.AUTH_REQUIRED and url and cookies_active(config, url):
         return ExtractionError(ErrorCode.COOKIES_INVALID, detail=err.detail)
     return err
 

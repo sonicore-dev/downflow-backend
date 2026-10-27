@@ -5,3 +5,4 @@ cookies/*.txt
 data/.secret
 .env
 *.zip
+data/downflow.db*

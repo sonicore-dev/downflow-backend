@@ -193,8 +193,33 @@ def resolve_source(config: ExtractorConfig) -> tuple[Optional[str], Any]:
     return None, None
 
 
-def cookies_active(config: Optional[ExtractorConfig] = None) -> bool:
-    return resolve_source(config or get_config())[0] is not None
+_YT_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+
+
+def _is_yt(url: Optional[str]) -> bool:
+    from .cookie_store import host_of
+    h = host_of(url or "")
+    return any(h == d or h.endswith("." + d) for d in _YT_HOSTS)
+
+
+def _store_entry(url: Optional[str]) -> Optional[dict[str, Any]]:
+    if not url:
+        return None
+    try:
+        from . import cookie_store
+        return cookie_store.match(url)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def cookies_active(config: Optional[ExtractorConfig] = None, url: Optional[str] = None) -> bool:
+    """Are there cookies for this URL's platform? (database entry first; the legacy file/browser only serves YouTube)."""
+    config = config or get_config()
+    if url is None:
+        return resolve_source(config)[0] is not None
+    if _store_entry(url):
+        return True
+    return _is_yt(url) and resolve_source(config)[0] is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -241,8 +266,33 @@ def _writeback(src: Path, copy: Path, before_sha: str, src_sig: tuple, original_
 
 
 @contextlib.contextmanager
-def cookie_options(config: ExtractorConfig) -> Iterator[dict[str, Any]]:
-    """Yield yt-dlp option fragments for the active cookie source (if any)."""
+def cookie_options(config: ExtractorConfig, url: Optional[str] = None) -> Iterator[dict[str, Any]]:
+    """Yield yt-dlp option fragments for the cookie source of this URL's platform (if any).
+
+    With a URL: the database entry for that platform is used; otherwise only YouTube falls back to the legacy
+    cookie file / browser profile. Other sites never receive cookies that belong to another platform.
+    """
+    entry = _store_entry(url)
+    if entry:
+        from . import cookie_store
+        tmp_dir = tempfile.mkdtemp(prefix="downflow-cookies-")
+        try:
+            os.chmod(tmp_dir, 0o700)
+            copy = Path(tmp_dir) / "cookies.txt"
+            copy.write_text(entry["text"], encoding="utf-8")
+            os.chmod(copy, 0o600)
+            try:
+                yield {"cookiefile": str(copy)}
+            finally:
+                if config.cookie_writeback:
+                    with contextlib.suppress(Exception):
+                        cookie_store.writeback(entry["domain"], copy.read_text(encoding="utf-8", errors="ignore"))
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return
+    if url is not None and not _is_yt(url):
+        yield {}
+        return
     kind, src = resolve_source(config)
     if kind == "file":
         validate_cookie_file(str(src))

@@ -12,3 +12,4 @@ data/.secret
 cookies/
 browser-profile/
 .env
+data/downflow.db*

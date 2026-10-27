@@ -2,11 +2,12 @@
 
 Credentials default to the values below and can be overridden with
 DOWNFLOW_ADMIN_USER / DOWNFLOW_ADMIN_PASS. Set DOWNFLOW_SECRET to keep sessions
-valid across servers; otherwise a random secret is stored in data/.secret.
+valid across servers; otherwise a stable secret is derived from the admin login, so sessions survive redeploys.
 """
 
 from __future__ import annotations
 
+import envfile  # noqa: F401  (loads .env)
 import hashlib
 import hmac
 import os
@@ -26,18 +27,11 @@ _SECRET_FILE = Path(__file__).resolve().parent.parent / "data" / ".secret"
 
 
 def _secret() -> bytes:
+    """Stable across redeploys (Render's disk is wiped): DOWNFLOW_SECRET, else derived from the admin login."""
     env = os.environ.get("DOWNFLOW_SECRET")
     if env:
         return env.encode()
-    try:
-        if _SECRET_FILE.exists():
-            return _SECRET_FILE.read_bytes()
-        value = secrets.token_hex(32).encode()
-        _SECRET_FILE.write_bytes(value)
-        os.chmod(_SECRET_FILE, 0o600)
-        return value
-    except OSError:
-        return secrets.token_hex(32).encode()  # sessions reset on restart
+    return hashlib.pbkdf2_hmac("sha256", f"{ADMIN_USER}\0{ADMIN_PASS}".encode(), b"downflow-session-v1", 50_000)
 
 
 _KEY = _secret()

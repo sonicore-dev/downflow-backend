@@ -26,6 +26,25 @@ how a request travels through it, every endpoint, every setting, how the logs re
 
 ---
 
+
+## Database (Turso): cookies, updates and memory that survive redeploys
+
+Render's free disk is wiped on every deploy, so anything the server saves is stored in a Turso database instead.
+
+**Setup (one time)**
+1. Put the token in `.env` (line `DOWNFLOW_TURSO_TOKEN=PASTE_YOUR_TURSO_TOKEN_HERE`) for local/Termux runs, and in Render → *Environment* as `DOWNFLOW_TURSO_TOKEN` (plus `DOWNFLOW_TURSO_URL`) for the deployed server. Never commit it.
+2. Restart. Tables are created automatically; the startup log shows `database ready · turso`.
+
+**What is stored**
+- **Cookies per platform** (encrypted): Admin → *Cookies* → add a domain (`youtube.com`, `tiktok.com`, any site), paste a Netscape `cookies.txt`, *Save & test*. Edit, disable, merge into, test and delete entries any time, no restart.
+  Each request only uses the entry matching the URL's platform (aliases such as `youtu.be`, `x.com`/`twitter.com` are built in and editable), and only **after the normal cookie-less attempts failed** (`DOWNFLOW_COOKIE_POLICY=first` flips that). Cookies a site rotates during a request are saved back to the database.
+  *Test* extracts your *test URL* with those cookies (best: a page/video that needs the login); without one it fetches the site and reports what it can.
+- **App updates**: Admin → *Updates* → publish a version name/code (optionally force update), make an older one live, delete old ones. `/check-updates/` serves the live row (cached up to a minute).
+- **Server memory**: the winning access strategy per site and request counters (flushed every 2 minutes and on shutdown).
+- The admin session secret is derived from the admin login (or `DOWNFLOW_SECRET`), so you stay logged in across redeploys.
+
+Cookies are encrypted with a key derived from `DOWNFLOW_STORE_KEY`, else `DOWNFLOW_SECRET`, else the admin login. Keep that value stable: changing it makes saved cookies unreadable (re-paste them). If the database is unreachable the server keeps working from memory and retries. Without Turso configured, a local `data/downflow.db` (SQLite) is used.
+
 ## 1. Quick start
 
 ```bash

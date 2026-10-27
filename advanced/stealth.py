@@ -130,15 +130,25 @@ def _generic(url: str, config: ExtractorConfig, imp) -> list[Strategy]:
     origin = f"{parts.scheme}://{parts.netloc}"
     uas = load_user_agents(config.user_agent_file)
     ref = {"Referer": origin + "/", "Origin": origin}
-    return [
-        ("chrome", {**imp("chrome")}),
-        ("safari", {**imp("safari"), "http_headers": dict(ref)}),
-        ("edge", {**imp("edge"), "http_headers": dict(ref)}),
-        ("firefox-rotate", {**imp("firefox"), "geo_bypass": True,
+    has_cookies = cookies_active(config, url) and config.cookie_policy != "never"
+    nc = {"_cookies": False}      # cookie-less routes first; this platform's saved cookies are the fallback
+    plain: list[Strategy] = [
+        ("chrome", {**imp("chrome"), **nc}),
+        ("safari", {**imp("safari"), "http_headers": dict(ref), **nc}),
+        ("edge", {**imp("edge"), "http_headers": dict(ref), **nc}),
+        ("firefox-rotate", {**imp("firefox"), "geo_bypass": True, **nc,
                             "http_headers": {**ref, "User-Agent": random.choice(uas),
                                              "Accept-Language": config.accept_language, "Sec-Fetch-Mode": "navigate"}}),
-        ("plain", {"geo_bypass": True, "http_headers": {**ref, "User-Agent": random.choice(uas)}}),
+        ("plain", {"geo_bypass": True, **nc, "http_headers": {**ref, "User-Agent": random.choice(uas)}}),
     ]
+    if not has_cookies:
+        return [(n, {k: v for k, v in ov.items() if k != "_cookies"}) for n, ov in plain]
+    logged: list[Strategy] = [
+        ("cookies-chrome", {**imp("chrome")}),
+        ("cookies-safari", {**imp("safari"), "http_headers": dict(ref)}),
+        ("cookies-plain", {"geo_bypass": True, "http_headers": {**ref, "User-Agent": random.choice(uas)}}),
+    ]
+    return logged + plain if config.cookie_policy == "first" else plain + logged
 
 
 def build_strategies(url: str, config: ExtractorConfig) -> list[Strategy]:
@@ -147,5 +157,5 @@ def build_strategies(url: str, config: ExtractorConfig) -> list[Strategy]:
         return {"impersonate": target} if target is not None else {}
 
     if is_youtube(url):
-        return _youtube(config, imp, cookies_active(config))
+        return _youtube(config, imp, cookies_active(config, url))
     return _generic(url, config, imp)

@@ -14,6 +14,10 @@ services:
         sync: false
       - key: DOWNFLOW_SECRET
         generateValue: true
+      - key: DOWNFLOW_TURSO_URL        # libsql://downflow-database-sonicore.aws-ap-northeast-1.turso.io
+        sync: false
+      - key: DOWNFLOW_TURSO_TOKEN      # paste the token in the Render dashboard (never in git)
+        sync: false
       - key: DOWNFLOW_PROXY            # residential/rotating proxy, see README (use {sid} for sticky sessions)
         sync: false
       - key: DOWNFLOW_COOKIE_FILE      # add the cookie file under Environment > Secret Files

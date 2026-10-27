@@ -17,7 +17,7 @@ from pydantic import BaseModel
 import asyncio
 
 from advanced import get_config
-from advanced import cookie_manager
+from advanced import cookie_manager, cookie_store, db
 from advanced.stealth import impersonation_available
 from api.version_prefix import API_PREFIX
 from helpers import auth, metrics
@@ -120,6 +120,7 @@ async def stats():
                    "stream_denied": guard["stream_denied"], "active_streams": sum(guard["streams"].values()),
                    "workers": cfg.workers, "state": "redis" if blocking else "memory",
                    "rate_limit": ratelimit.stats()},
+        "database": db.status(),
         "tasks_in_memory": tasks[0], "tasks_active": tasks[1],
         "system": {"python": sys.version.split()[0], "platform": platform.platform(), "pid": os.getpid(),
                    "cpus": os.cpu_count(), "load": list(os.getloadavg()) if hasattr(os, "getloadavg") else None,
@@ -208,6 +209,154 @@ async def cookies_install(body: CookieText):
 async def cookies_check():
     """Live test: does YouTube still treat the current cookies as signed in?"""
     return await asyncio.to_thread(cookie_manager.check_cookies_live)
+
+
+# ---- per-platform cookies (database) ---------------------------------------------------------------------
+class PlatformCookies(BaseModel):
+    domain: str
+    text: Optional[str] = None
+    label: str = ""
+    aliases: Optional[list[str]] = None
+    enabled: bool = True
+    test_url: str = ""
+    merge: bool = False
+
+
+class PlatformMeta(BaseModel):
+    label: Optional[str] = None
+    aliases: Optional[list[str]] = None
+    enabled: Optional[bool] = None
+    test_url: Optional[str] = None
+
+
+def _db_err(exc: Exception):
+    return JSONResponse(status_code=503, content={"ok": False, "error": f"Database problem: {exc}"})
+
+
+@admin.get("/store")
+async def store_info():
+    return {"database": db.status()}
+
+
+@admin.get("/platform-cookies")
+async def platform_cookies_list():
+    """All platforms with saved cookies (no cookie values)."""
+    await asyncio.to_thread(cookie_store.load)
+    return {"database": db.status(), "items": cookie_store.list_entries()}
+
+
+@admin.post("/platform-cookies")
+async def platform_cookies_save(body: PlatformCookies):
+    """Add or replace a platform's cookies (or just edit its details when no cookie text is sent)."""
+    try:
+        if body.text and body.text.strip():
+            item = await asyncio.to_thread(cookie_store.save, body.domain, body.text, body.label, body.aliases,
+                                           body.enabled, body.test_url, body.merge)
+        else:
+            dom = cookie_store.norm_domain(body.domain)
+            if not cookie_store.get(dom):
+                return JSONResponse(status_code=400, content={"ok": False, "error": "Paste the cookies for a new platform."})
+            item = await asyncio.to_thread(lambda: cookie_store.update_meta(
+                dom, label=body.label or dom, **({"aliases": body.aliases} if body.aliases is not None else {}),
+                enabled=body.enabled, test_url=body.test_url))
+        return {"ok": True, "item": item}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.patch("/platform-cookies/{domain}")
+async def platform_cookies_patch(domain: str, body: PlatformMeta):
+    try:
+        fields = {k: v for k, v in body.model_dump().items() if v is not None}
+        return {"ok": True, "item": await asyncio.to_thread(lambda: cookie_store.update_meta(cookie_store.norm_domain(domain), **fields))}
+    except KeyError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Unknown platform."})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.delete("/platform-cookies/{domain}")
+async def platform_cookies_delete(domain: str):
+    try:
+        await asyncio.to_thread(lambda: cookie_store.delete(cookie_store.norm_domain(domain)))
+        return {"ok": True}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.post("/platform-cookies/{domain}/check")
+async def platform_cookies_check(domain: str, test_url: str = ""):
+    """Test the saved cookies: with a test URL yt-dlp extracts it using them; otherwise a login check of the site."""
+    try:
+        return {"ok": True, **await asyncio.to_thread(lambda: cookie_store.check(cookie_store.norm_domain(domain), test_url))}
+    except KeyError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "No cookies saved for that platform."})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+# ---- app updates (database) -------------------------------------------------------------------------------
+class Release(BaseModel):
+    version_name: str
+    version_code: int
+    force_update: bool = False
+    notes: str = ""
+    activate: bool = True
+
+
+class Activate(BaseModel):
+    force_update: Optional[bool] = None
+
+
+@admin.get("/updates")
+async def updates_list():
+    from helpers import update_check
+    try:
+        return {"active": await asyncio.to_thread(update_check.get_update_data),
+                "items": await asyncio.to_thread(update_check.list_releases)}
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.post("/updates")
+async def updates_publish(body: Release):
+    """Publish a version. The app sees it at /check-updates/ within a second."""
+    from helpers import update_check
+    try:
+        data = await asyncio.to_thread(update_check.publish, body.version_name, body.version_code, body.force_update,
+                                       body.notes, body.activate)
+        return {"ok": True, "active": data}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.post("/updates/{release_id}/activate")
+async def updates_activate(release_id: int, body: Activate):
+    from helpers import update_check
+    try:
+        return {"ok": True, "active": await asyncio.to_thread(update_check.activate, release_id, body.force_update)}
+    except KeyError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Unknown release."})
+    except db.DbError as exc:
+        return _db_err(exc)
+
+
+@admin.delete("/updates/{release_id}")
+async def updates_delete(release_id: int):
+    from helpers import update_check
+    try:
+        await asyncio.to_thread(update_check.remove, release_id)
+        return {"ok": True}
+    except db.DbError as exc:
+        return _db_err(exc)
 
 
 _EXAMPLES = {

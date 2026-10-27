@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import envfile  # noqa: F401  (loads .env)
 import hashlib
 import threading
 from datetime import datetime
@@ -61,6 +62,8 @@ async def _lifespan(application):
     watchdog = asyncio.create_task(_cookie_watchdog())
     from advanced import get_config, updater
     updater.start(get_config())
+    from advanced import persist
+    persist.start()
     import threading
     from advanced import doctor
     threading.Thread(target=doctor.log_report, args=(get_config(),), daemon=True, name="doctor").start()
@@ -69,6 +72,10 @@ async def _lifespan(application):
             yield state
         finally:
             watchdog.cancel()
+            try:
+                await asyncio.wait_for(asyncio.to_thread(persist.flush), 5)
+            except Exception:  # noqa: BLE001
+                pass
             await shutdown_extraction()
 
 

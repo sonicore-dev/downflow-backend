@@ -7,6 +7,7 @@ conservative defaults, so nothing needs editing in source. See README section
 
 from __future__ import annotations
 
+import envfile  # noqa: F401  (loads .env)
 import logging
 import os
 from dataclasses import dataclass
@@ -156,6 +157,8 @@ class ExtractorConfig:
     # Scale / overload protection
     workers: int = 1                         # uvicorn worker processes (needs DOWNFLOW_REDIS_URL when > 1)
     redis_url: Optional[str] = None          # shared task store + rate limits for multi-worker / multi-instance setups
+    turso_url: Optional[str] = None          # libsql://… persistent database (cookies per platform, updates, memory)
+    turso_token: Optional[str] = None        # database auth token (keep secret)
     max_inflight: int = 2000                 # requests being handled at once before new ones get a fast 503
     max_connections: int = 10000             # open sockets per worker (uvicorn limit_concurrency), 0 = unlimited
     backlog: int = 4096                      # pending TCP connections the OS may queue
@@ -245,6 +248,8 @@ class ExtractorConfig:
             instant_budget=_float("INSTANT_BUDGET", d.instant_budget, 8, 180),
             workers=_workers(),
             redis_url=_env("REDIS_URL"),
+            turso_url=_env("TURSO_URL"),
+            turso_token=_env("TURSO_TOKEN"),
             max_inflight=_int("MAX_INFLIGHT", d.max_inflight, 10, 1000000),
             max_connections=_int("MAX_CONNECTIONS", d.max_connections, 0, 1000000),
             backlog=_int("BACKLOG", d.backlog, 16, 65535),

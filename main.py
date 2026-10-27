@@ -1,4 +1,5 @@
 """Entry point: ``python main.py``. Tuned uvicorn launcher (see README "Scaling")."""
+import envfile  # noqa: F401  (loads .env)
 import logging
 import os
 
