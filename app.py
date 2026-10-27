@@ -35,6 +35,8 @@ async def _cookie_watchdog():
 
     from advanced import cookie_manager, get_config
     cfg, log = get_config(), logging.getLogger("downflow.cookies")
+    if cfg.turso_url and cfg.turso_token:
+        return                      # cookies live in the database only (see persist.restore)
     st = cookie_manager.cookie_status(cfg)
     if st["source"] == "file":
         log.info("cookies: file source · %s cookies · login cookies %s · expires in %s days",
@@ -64,9 +66,6 @@ async def _lifespan(application):
     updater.start(get_config())
     from advanced import persist
     persist.start()
-    import threading
-    from advanced import doctor
-    threading.Thread(target=doctor.log_report, args=(get_config(),), daemon=True, name="doctor").start()
     async with _base_lifespan(application) as state:
         try:
             yield state

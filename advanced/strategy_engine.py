@@ -131,6 +131,10 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
     site = proxy_manager.host_of(url)
     strategies = _MEMORY.order(site, build_strategies(url, config))
     cookie_names = {n for n, ov in strategies if ov.get("_cookies", True) is not False}
+    from .cookie_store import match as _ck, platform_name
+    _entry = _ck(url)
+    log.info("start %s · %s · %d route(s) · cookies: %s · proxy pool: %d", platform_name(site), site, len(strategies),
+             f"saved ({_entry['count']})" if _entry else "none", len(proxy_manager.pool(config)))
     pool_ = proxy_manager.pool(config)
     multi_exit = len(pool_) > 1 or any(proxy_manager.is_templated(p) for p in pool_)
     # Racing only helps when the parallel attempt leaves from a different IP; from one IP it just doubles the load.
@@ -154,7 +158,8 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
             tried_proxies.append(proxy)
         if launched:
             report("retrying", f"Trying another access method ({name})")
-        log.info("try   %s %d/%d · proxy %s", name, launched + 1, len(strategies), proxy_manager.redact(proxy))
+        log.info("try   %s · %s %d/%d%s · proxy %s", site, name, launched + 1, len(strategies),
+                 " · with cookies" if name in cookie_names else "", proxy_manager.redact(proxy) or "direct")
         launched += 1
         running[pool.submit(attempt, name, overlay, proxy)] = (name, proxy, time.monotonic())
 
@@ -179,7 +184,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                     info = fut.result()
                 except Exception as exc:  # noqa: BLE001
                     err = classify_exception(exc)
-                    log.warning("block %s -> %s (%.1fs)", name, err.code.value, time.monotonic() - t0)
+                    log.warning("block %s · %s -> %s (%.1fs)", site, name, err.code.value, time.monotonic() - t0)
                     errors.append(err)
                     _MEMORY.lose(site, name)
                     block_streak = block_streak + 1 if err.code in _BLOCKLIKE else 0
@@ -195,7 +200,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                         if not pending and not running:
                             raise err
                     if block_streak >= _MAX_BLOCKS_SAME_EXIT and not multi_exit and not running:
-                        logged = [x for x in pending if x[0].startswith("yt-cookies")]
+                        logged = [x for x in pending if x[0].startswith(("yt-cookies", "cookies-"))]
                         if logged and not tried_logged_in:      # last resort before giving up: the signed-in routes
                             tried_logged_in, block_streak = True, 0
                             pending[:] = logged
@@ -207,8 +212,8 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                     continue
                 proxy_manager.report(proxy, site, "ok", config)
                 _MEMORY.win(site, name)
-                if launched > 1:
-                    log.info("ok    unlocked via %s", name)
+                if True:
+                    log.info("ok    %s · unlocked via %s%s (%.1fs)", site, name, " with cookies" if name in cookie_names else "", time.monotonic() - t0)
                 return info, proxy, name
             if giveup:
                 break

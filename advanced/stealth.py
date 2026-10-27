@@ -139,6 +139,10 @@ def _generic(url: str, config: ExtractorConfig, imp) -> list[Strategy]:
         ("firefox-rotate", {**imp("firefox"), "geo_bypass": True, **nc,
                             "http_headers": {**ref, "User-Agent": random.choice(uas),
                                              "Accept-Language": config.accept_language, "Sec-Fetch-Mode": "navigate"}}),
+        ("mobile", {**imp("safari"), "geo_bypass": True, **nc,
+                    "http_headers": {**ref, "Accept-Language": config.accept_language,
+                                     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 "
+                                                   "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"}}),
         ("plain", {"geo_bypass": True, **nc, "http_headers": {**ref, "User-Agent": random.choice(uas)}}),
     ]
     if not has_cookies:
@@ -146,6 +150,7 @@ def _generic(url: str, config: ExtractorConfig, imp) -> list[Strategy]:
     logged: list[Strategy] = [
         ("cookies-chrome", {**imp("chrome")}),
         ("cookies-safari", {**imp("safari"), "http_headers": dict(ref)}),
+        ("cookies-mobile", {**imp("safari"), "http_headers": {**ref, "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"}}),
         ("cookies-plain", {"geo_bypass": True, "http_headers": {**ref, "User-Agent": random.choice(uas)}}),
     ]
     return logged + plain if config.cookie_policy == "first" else plain + logged

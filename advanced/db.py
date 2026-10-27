@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -216,33 +217,57 @@ def status() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # encryption at rest (cookies are credentials)
 # --------------------------------------------------------------------------- #
-_fernet: Any = None
-
-
 def _key() -> bytes:
     pw = os.environ.get("DOWNFLOW_STORE_KEY") or os.environ.get("DOWNFLOW_SECRET") or \
         (os.environ.get("DOWNFLOW_ADMIN_USER", "saad") + "\0" + os.environ.get("DOWNFLOW_ADMIN_PASS", "sk.saadu098"))
-    return base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", pw.encode(), b"downflow-store-v1", 120_000))
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), b"downflow-store-v1", 120_000)
 
 
-def _f():
-    global _fernet
-    if _fernet is None:
-        from cryptography.fernet import Fernet
-        _fernet = Fernet(_key())
-    return _fernet
+_keys: Optional[tuple] = None
+
+
+def _k() -> tuple:
+    global _keys
+    if _keys is None:
+        base = _key()
+        _keys = (hmac.new(base, b"enc", "sha256").digest(), hmac.new(base, b"mac", "sha256").digest(), base)
+    return _keys
+
+
+def _stream(key: bytes, nonce: bytes, n: int) -> bytes:
+    out, i = bytearray(), 0
+    while len(out) < n:
+        out += hmac.new(key, nonce + i.to_bytes(8, "big"), "sha256").digest()
+        i += 1
+    return bytes(out[:n])
 
 
 def seal(text: str) -> str:
-    return _f().encrypt(text.encode("utf-8")).decode()
+    """Authenticated encryption using only the standard library (works on Termux without extra packages)."""
+    enc, mac, _ = _k()
+    data = text.encode("utf-8")
+    nonce = os.urandom(16)
+    ct = bytes(a ^ b for a, b in zip(data, _stream(enc, nonce, len(data))))
+    tag = hmac.new(mac, nonce + ct, "sha256").digest()
+    return "v2." + base64.urlsafe_b64encode(nonce + ct + tag).decode()
 
 
 def unseal(token: str) -> str:
-    from cryptography.fernet import InvalidToken
+    enc, mac, base = _k()
+    bad = DbError("cannot decrypt: DOWNFLOW_STORE_KEY / SECRET differs from the one used when this was saved")
     try:
-        return _f().decrypt(token.encode()).decode("utf-8")
-    except InvalidToken:
-        raise DbError("cannot decrypt: DOWNFLOW_STORE_KEY / SECRET changed since this was saved") from None
+        if token.startswith("v2."):
+            raw = base64.urlsafe_b64decode(token[3:].encode())
+            nonce, ct, tag = raw[:16], raw[16:-32], raw[-32:]
+            if not hmac.compare_digest(tag, hmac.new(mac, nonce + ct, "sha256").digest()):
+                raise bad
+            return bytes(a ^ b for a, b in zip(ct, _stream(enc, nonce, len(ct)))).decode("utf-8")
+        from cryptography.fernet import Fernet            # legacy tokens from the first build
+        return Fernet(base64.urlsafe_b64encode(base)).decrypt(token.encode()).decode("utf-8")
+    except DbError:
+        raise
+    except Exception:  # noqa: BLE001
+        raise bad from None
 
 
 # --------------------------------------------------------------------------- #

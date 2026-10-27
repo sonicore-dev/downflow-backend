@@ -56,7 +56,7 @@ LEVEL = {  # badge colours: background, text
 COMPONENT = {
     "access": 75, "api": 213, "engine": 81, "strategy": 141, "stealth": 141, "proxy": 208, "instant": 191,
     "download": 214, "retry": 179, "limit": 221, "guard": 203, "cookies": 180, "doctor": 80, "update": 114,
-    "redis": 167, "config": 109, "headers": 110, "status": 114, "error": 203, "downflow": 117, "server": 117,
+    "store": 80, "persist": 80, "updates": 114, "redis": 167, "config": 109, "headers": 110, "status": 114, "error": 203, "downflow": 117, "server": 117,
 }
 # message tags (first word) -> colour
 TAG = {

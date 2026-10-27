@@ -23,7 +23,7 @@ canvas{width:100%;height:60px;display:block}
 .lights i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
 #log{height:min(70vh,680px);height:min(70dvh,680px);overflow:auto;padding:10px 12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font:11px var(--mono);touch-action:pan-y;overscroll-behavior:contain}
 .ln{display:flex;gap:9px}.ln .t{color:#566074;flex:none}.ln .lv{flex:none;width:3.2em;text-align:center;border-radius:4px;font-size:.85em;font-weight:700;align-self:flex-start;margin-top:.15em;padding:1px 0}
-.ln .nm{flex:none;width:6.5em;font-weight:700}.ln .m{flex:1;min-width:0}
+.ln .nm{flex:none;width:6.2em;font-weight:700}.ln .rid{flex:none;width:5.2em}.ln .m{flex:1;min-width:0}
 .L-INFO{background:#14532d;color:#bbf7d0}.L-WARNING{background:#854d0e;color:#fef08a}.L-ERROR,.L-CRITICAL{background:#7f1d1d;color:#fecaca}.L-DEBUG{background:#27272a;color:#a1a1aa}
 .mW{color:#fde68a}.mE{color:#fca5a5}.u{color:#60a5fa;text-decoration:underline}.n{color:#fbbf24;font-weight:700}.tg{font-weight:800}
 /* tester */
@@ -39,7 +39,7 @@ td.w{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:820px){.req select{width:92px}pre.out{max-height:60vh}textarea{min-height:140px}}
 @media(max-width:640px){
  #log{height:62dvh;padding:8px 10px}
- .ln{gap:6px}.ln .t{display:none}.ln .nm{width:5.2em}
+ .ln{gap:6px}.ln .t{display:none}.ln .nm{width:5.2em}.ln .rid{display:none}
  .tbar{padding:8px 10px}.tbar input{flex:1 1 100%;order:5}.lights{display:none}
  .tbar .btn{padding:7px 10px}
  .kv{grid-template-columns:minmax(0,1fr);gap:2px}.kv b{margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
@@ -76,19 +76,13 @@ td.w{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  <p class="muted" style="margin-top:8px">Used only after the normal (no-cookie) attempts fail, and only for URLs on that platform. Stored encrypted in the database.</p>
  <div class="sec" id="pcFormTitle">Add platform</div>
  <div class="card"><div class="split">
-  <div><label>Domain</label><input id="pcDomain" placeholder="youtube.com" autocapitalize="off" spellcheck="false">
-   <label style="margin-top:10px">Label (optional)</label><input id="pcLabel" placeholder="YouTube main account">
-   <label style="margin-top:10px">Also applies to (comma separated)</label><input id="pcAliases" placeholder="youtu.be, youtube-nocookie.com" spellcheck="false">
+  <div><label>Main domain <span class="muted">(empty = detect from the cookies)</span></label><input id="pcDomain" placeholder="youtube.com" autocapitalize="off" spellcheck="false">
+   <label style="margin-top:10px">Platform name <span class="muted">(empty = auto)</span></label><input id="pcLabel" placeholder="YouTube">
+   <label style="margin-top:10px">Alternative domains <span class="muted">(comma separated)</span></label><input id="pcAliases" placeholder="youtu.be, youtube-nocookie.com" spellcheck="false">
    <label style="margin-top:10px">Test URL (a page/video that needs this login)</label><input id="pcTest" placeholder="https://www.youtube.com/watch?v=…" spellcheck="false"></div>
   <div><label>Netscape cookies.txt <span class="muted" id="pcHave"></span></label><textarea id="pcText" spellcheck="false" placeholder="# Netscape HTTP Cookie File&#10;.tiktok.com&#9;TRUE&#9;/&#9;TRUE&#9;1799999999&#9;sessionid&#9;..." style="min-height:170px"></textarea>
    <label style="margin-top:10px;display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" id="pcMerge" style="width:auto"> merge into the existing cookies instead of replacing</label></div></div>
   <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn" id="pcSave">Save</button><button class="btn ghost" id="pcSaveTest">Save &amp; test</button><button class="btn ghost" id="pcCancel" style="display:none">Cancel edit</button><span class="muted" id="pcMsg"></span></div></div>
- <details style="margin-top:22px"><summary class="sec" style="cursor:pointer;margin:0 0 10px">Legacy YouTube cookie file</summary>
- <div class="split"><div><div class="card kv" id="ck"></div>
- <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn ghost" id="ckCheck">Test file cookies</button><span class="muted" id="ckMsg"></span></div></div>
- <div><div class="card"><label>Replace the file with pasted cookies</label><textarea id="ckText" spellcheck="false" style="min-height:110px"></textarea>
- <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn ghost" id="ckSave">Save to file</button><span class="muted" id="ckSaved"></span></div>
- <p class="muted" style="margin-top:10px">A platform saved above for youtube.com takes priority over this file. The file is lost on redeploy; the database is not.</p></div></div></div></details>
 </section>
 <section data-tab="Updates" class="hidden">
  <div class="split"><div><div class="sec">Live version <span class="muted" style="text-transform:none;letter-spacing:0">(what the app gets from /check-updates/)</span></div><div class="card kv" id="upNow"></div></div>
@@ -113,7 +107,7 @@ const ICON={Overview:"▦",Logs:"❯_","API Tester":"⚡",Tasks:"☰",Cookies:"�
 const secs=[...document.querySelectorAll("section[data-tab]")];
 secs.forEach(s=>{const b=document.createElement("button");b.className="tab";b.textContent=ICON[s.dataset.tab]+"  "+s.dataset.tab;b.dataset.n=s.dataset.tab;b.onclick=()=>show(s.dataset.tab);$("tabs").append(b)});
 function show(n){secs.forEach(s=>s.classList.toggle("hidden",s.dataset.tab!==n));[...$("tabs").children].forEach(b=>b.classList.toggle("on",b.dataset.n===n));$("title").textContent=n;
- try{localStorage.setItem("adm_tab",n)}catch(e){}if(n==="Tasks")loadTasks();if(n==="Config")loadCfg();if(n==="Cookies"){loadCk();loadPc()}if(n==="Updates")loadUp();if(n==="Logs")scroll()}
+ try{localStorage.setItem("adm_tab",n)}catch(e){}if(n==="Tasks")loadTasks();if(n==="Config")loadCfg();if(n==="Cookies"){loadPc()}if(n==="Updates")loadUp();if(n==="Logs")scroll()}
 let saved="Overview";try{saved=localStorage.getItem("adm_tab")||saved}catch(e){}
 
 // cookies
@@ -123,8 +117,8 @@ async function loadCk(){try{const c=await jget("/api/v1/admin/cookies"),l=c.last
   +`<b>expires in</b><span class="${c.expired?"r":""}">${c.expires_in_days==null?"—":c.expires_in_days+" days"}</span><b>updated</b><span>${c.file_modified?new Date(c.file_modified*1000).toLocaleString():"—"}</span>`
   +`<b>auto-refresh</b><span>${c.writeback?"on":"off"}</span>`}else if(c.source==="browser"){h+=`<b>browser</b><span>${esc(c.browser)}</span>`}else{h+=`<b>hint</b><span class="muted">${esc(c.hint||"")}</span>`}
  h+=`<b>last test</b><span>${l.checked_at?(l.valid===true?'<span class="ok">valid</span>':l.valid===false?'<span class="r">invalid</span>':'<span class="y">unknown</span>')+" · "+esc(l.detail||"")+" · "+new Date(l.checked_at*1000).toLocaleTimeString():'<span class="muted">'+esc(l.detail||"not tested")+"</span>"}</span>`;$("ck").innerHTML=h}catch(e){}}
-$("ckCheck").onclick=async()=>{$("ckMsg").textContent="testing…";try{const r=await(await api("/api/v1/admin/cookies/check",{method:"POST"})).json();$("ckMsg").textContent=(r.valid===true?"valid":r.valid===false?"INVALID":"unknown")+" · "+r.detail}catch(e){$("ckMsg").textContent="failed"}loadCk()};
-$("ckSave").onclick=async()=>{const t=$("ckText").value.trim();if(!t)return;$("ckSaved").textContent="saving…";try{const r=await api("/api/v1/admin/cookies",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})});const j=await r.json();
+if($("ckCheck"))$("ckCheck").onclick=async()=>{$("ckMsg").textContent="testing…";try{const r=await(await api("/api/v1/admin/cookies/check",{method:"POST"})).json();$("ckMsg").textContent=(r.valid===true?"valid":r.valid===false?"INVALID":"unknown")+" · "+r.detail}catch(e){$("ckMsg").textContent="failed"}loadCk()};
+if($("ckSave"))$("ckSave").onclick=async()=>{const t=$("ckText").value.trim();if(!t)return;$("ckSaved").textContent="saving…";try{const r=await api("/api/v1/admin/cookies",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})});const j=await r.json();
  if(j.ok){$("ckText").value="";$("ckSaved").textContent="saved · "+j.status.count+" cookies"}else $("ckSaved").textContent=j.error||"invalid"}catch(e){$("ckSaved").textContent="failed"}loadCk()};
 
 // platform cookies (database)
@@ -145,7 +139,7 @@ $("pcRows").onclick=async ev=>{const b=ev.target.closest("button");if(!b)return;
 $("pcRows").onchange=async ev=>{const d=ev.target.dataset.tg;if(d){await jpost("/api/v1/admin/platform-cookies/"+encodeURIComponent(d),{enabled:ev.target.checked},"PATCH");loadPc()}};
 function pcReset(){$("pcFormTitle").textContent="Add platform";["pcDomain","pcLabel","pcAliases","pcTest","pcText"].forEach(i=>$(i).value="");$("pcDomain").readOnly=false;$("pcHave").textContent="";$("pcCancel").style.display="none";$("pcMerge").checked=false}
 $("pcCancel").onclick=pcReset;
-async function pcSave(test){const dom=$("pcDomain").value.trim();if(!dom){$("pcMsg").textContent="enter a domain";return}$("pcMsg").textContent="saving…";
+async function pcSave(test){const dom=$("pcDomain").value.trim();if(!dom&&!$("pcText").value.trim()){$("pcMsg").textContent="paste cookies or enter a domain";return}$("pcMsg").textContent="saving…";
  const al=$("pcAliases").value.split(",").map(x=>x.trim()).filter(Boolean);
  const body={domain:dom,text:$("pcText").value,label:$("pcLabel").value.trim(),test_url:$("pcTest").value.trim(),merge:$("pcMerge").checked,enabled:true};if(al.length||$("pcDomain").readOnly)body.aliases=al;
  try{const j=await jpost("/api/v1/admin/platform-cookies",body);if(!j.ok){$("pcMsg").textContent=j.error||"failed";return}$("pcMsg").textContent="saved · "+j.item.count+" cookies";const d=j.item.domain;pcReset();await loadPc();
@@ -179,14 +173,28 @@ function spark(){const cv=$("spark"),x=cv.getContext("2d"),w=cv.width,h=cv.heigh
  x.beginPath();series.forEach((v,i)=>{const px=i/(series.length-1)*w,py=h-4-(v/mx)*(h-10);i?x.lineTo(px,py):x.moveTo(px,py)});x.strokeStyle="#22d3ee";x.lineWidth=2;x.stroke();
  x.lineTo(w,h);x.lineTo(0,h);x.closePath();const g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,"#22d3ee55");g.addColorStop(1,"#22d3ee00");x.fillStyle=g;x.fill();$("rate").textContent="now "+fmtB(series[series.length-1])+"/s · peak "+fmtB(mx)+"/s"}
 // logs
-const MOD={engine:"#38bdf8",api:"#f472b6",stealth:"#a78bfa",download:"#fb923c",retry:"#fbbf24",config:"#67e8f9",access:"#94a3b8",error:"#f87171",downflow:"#7dd3fc"};
-const TAG={start:"#22d3ee",try:"#60a5fa",ok:"#4ade80",done:"#34d399",block:"#fb923c",failed:"#f87171",send:"#f472b6",fetch:"#7dd3fc",direct:"#fb923c",merge:"#c084fc"};
-function paint(m){let h=esc(m);h=h.replace(/^(\w+)(\s)/,(a,w,s)=>TAG[w]?`<span class="tg" style="color:${TAG[w]}">${w}</span>${s}`:a);
- h=h.replace(/(https?:\/\/[^\s<]+)/g,'<span class="u">$1</span>').replace(/(^|[\s(])(\d+(?:\.\d+)?\s?(?:s|ms|MB|KB|GB|%))(?![\w])/g,'$1<span class="n">$2</span>').replace(/\b(\d+\/\d+)\b/g,'<span style="color:#c084fc">$1</span>').replace(/-&gt;/g,'<span style="color:#fb7185">→</span>')
- .replace(/"(GET|POST|PUT|DELETE)\s(\S+)\s(HTTP\/[\d.]+)"\s(\d{3})/,(a,v,p,pr,c)=>`<b style="color:${v=="GET"?"#4ade80":"#fbbf24"}">${v}</b> ${p} <span class="muted">${pr}</span> <b style="color:${c<300?"#4ade80":c<400?"#60a5fa":c<500?"#fbbf24":"#f87171"}">${c}</b>`);return h}
+// Same colours/columns as the server console (helpers/logger.py): time · level · component · request id · message
+const X=n=>{if(n<16)return["#000","#c00","#0a0","#c70","#00c","#c0c","#0aa","#ccc","#777","#f55","#5f5","#ff5","#77f","#f5f","#5ff","#fff"][n];
+ if(n>=232){const g=8+(n-232)*10;return`rgb(${g},${g},${g})`}n-=16;const q=[0,95,135,175,215,255];return`rgb(${q[Math.floor(n/36)]},${q[Math.floor(n/6)%6]},${q[n%6]})`};
+const COMP={access:75,api:213,engine:81,strategy:141,stealth:141,proxy:208,instant:191,download:214,retry:179,limit:221,guard:203,cookies:180,update:114,updates:114,
+ redis:167,config:109,headers:110,status:114,error:203,downflow:117,server:117,store:80,persist:80};
+const TG={start:51,try:75,ok:84,done:46,block:214,fail:203,failed:203,send:213,fetch:117,direct:208,merge:177,queue:221,hedge:141,retry:179,shed:196,limit:220,giving:203,proxy:208,check:80,cache:114,join:111,unlock:46};
+const LVB={INFO:["#00875f","#eee","INF"],WARNING:["#d78700","#000","WRN"],ERROR:["#d70000","#eee","ERR"],CRITICAL:["#af0087","#eee","CRT"],DEBUG:["#444","#aaa","DBG"]};
+const MCOL={GET:84,POST:214,PUT:75,PATCH:75,DELETE:203,HEAD:141,OPTIONS:141};
+const sc=c=>c<300?84:c<400?51:c<500?221:203,lc=m=>m<250?84:m<1000?252:m<3000?221:203;
+const fms=m=>m<1000?Math.round(m)+"ms":(m/1000).toFixed(2)+"s",fby=n=>{n=+n||0;const u=["B","KB","MB","GB"];let i=0;while(n>=1024&&i<3){n/=1024;i++}return(i?n.toFixed(1):Math.round(n))+u[i]};
+const sp=(t,c,b)=>`<span style="color:${X(c)}${b?";font-weight:700":""}">${t}</span>`;
+function paint(m,level){const base={WARNING:221,ERROR:210,CRITICAL:205}[level]||252;let first=m.split(" ")[0],h=esc(m);
+ h=h.replace(/(https?:\/\/[^\s<)]+)/g,'<span class="u">$1</span>').replace(/(^|[\s(])(\d+(?:\.\d+)?\s?(?:s|ms|MB|KB|GB|B|%))(?![\w\/.:])/g,(a,p,v)=>p+sp(v,221,1))
+  .replace(/\b(\d+\/\d+)\b/g,(a,v)=>sp(v,177)).replace(/\b(auth_required|rate_limited|ip_blocked|format_not_available|extractor_outdated|timeout|network_error|no_formats|private_video|unavailable|geo_restricted|age_restricted|cookies_invalid|busy|internal_error)\b/g,(a,v)=>sp(v,203))
+  .replace(/-&gt;|→/g,sp("→",203)).replace(/ · /g,' <span style="opacity:.45">·</span> ');
+ if(TG[first])h=h.replace(first,sp(first.padEnd(6," ").replace(/ /g,"&nbsp;"),TG[first],1));
+ return `<span style="color:${X(base)}">${h}</span>`}
+function httpLine(h){return sp(esc(h.method).padEnd(6," ").replace(/ /g,"&nbsp;"),MCOL[h.method]||250,1)+" "+sp(esc(h.path),255)+"  "+sp(h.status,sc(h.status),1)+"  "+sp(fms(h.ms||0),lc(h.ms||0),1)
+ +'  <span style="opacity:.5">'+fby(h.bytes)+"  "+esc(h.ip||"")+"</span>"+(h.note?" "+sp(esc(h.note),221):"")}
 let logs=[],after=0,paused=false;const box=$("log");
-function line(r){const d=document.createElement("div");d.className="ln";const lv={INFO:"INF",WARNING:"WRN",ERROR:"ERR",CRITICAL:"CRT",DEBUG:"DBG"}[r.level]||r.level;
- d.innerHTML=`<span class="t">${r.t}</span><span class="lv L-${r.level}">${lv}</span><span class="nm" style="color:${MOD[r.name]||"#94a3b8"}">${esc(r.name)}</span><span class="m ${r.level=="WARNING"?"mW":r.level=="ERROR"||r.level=="CRITICAL"?"mE":""}">${paint(r.msg)}</span>`;return d}
+function line(r){const d=document.createElement("div");d.className="ln";const L=LVB[r.level]||LVB.INFO;
+ d.innerHTML=`<span class="t">${r.t}</span><span class="lv" style="background:${L[0]};color:${L[1]}">${L[2]}</span><span class="nm" style="color:${X(COMP[r.name]||245)}">${esc(r.name.slice(0,9))}</span><span class="rid" style="color:${X(176)}">${esc(r.rid||"")}</span><span class="m">${r.http?httpLine(r.http):paint(r.msg,r.level)}</span>`;return d}
 const ok=r=>(!$("lvl").value||r.level===$("lvl").value)&&(!$("q").value||(r.msg+r.name).toLowerCase().includes($("q").value.toLowerCase()));
 function scroll(){box.scrollTop=box.scrollHeight}
 function redraw(){box.textContent="";logs.filter(ok).forEach(r=>box.append(line(r)));scroll()}
@@ -198,7 +206,7 @@ $("clr").onclick=async()=>{await api("/api/v1/admin/logs/clear",{method:"POST"})
 $("dl").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([logs.map(r=>`${r.t} ${r.level} ${r.name} ${r.msg}`).join("\n")]));a.download="downflow-logs.txt";a.click()};
 // terminal zoom: A-/A+ buttons, Ctrl/Cmd+wheel, two-finger pinch (saved per device)
 let fs=11;try{fs=+localStorage.getItem("adm_fs")||11}catch(e){}
-function setFs(v){fs=Math.round(Math.max(8,Math.min(22,v))*2)/2;box.style.fontSize=fs+"px";$("fsv").textContent=fs+"px";try{localStorage.setItem("adm_fs",fs)}catch(e){}}
+function setFs(v){fs=Math.round(Math.max(5,Math.min(22,v))*2)/2;box.style.fontSize=fs+"px";$("fsv").textContent=fs+"px";try{localStorage.setItem("adm_fs",fs)}catch(e){}}
 setFs(fs);$("fm").onclick=()=>setFs(fs-1);$("fp").onclick=()=>setFs(fs+1);$("fsv").onclick=()=>setFs(11);
 box.addEventListener("wheel",e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();setFs(fs-Math.sign(e.deltaY)*.5)}},{passive:false});
 let pd=0,pf=fs;const dist=e=>Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);

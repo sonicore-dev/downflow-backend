@@ -161,10 +161,10 @@ async def config():
 @admin.get("/antiblock")
 async def antiblock():
     """Live view of the anti-blocking layer: proxy health, PO-token provider, strategy memory, yt-dlp version."""
-    from advanced import doctor, pot_provider, proxy_manager, strategy_engine, updater
+    from advanced import pot_provider, proxy_manager, strategy_engine, updater
     cfg = get_config()
     return {
-        "doctor": await asyncio.to_thread(doctor.run_checks, cfg),
+        "doctor": [],
         "proxies": proxy_manager.stats(cfg),
         "pot_provider": await asyncio.to_thread(pot_provider.status, cfg),
         "strategies": strategy_engine.memory_snapshot(),
@@ -213,7 +213,7 @@ async def cookies_check():
 
 # ---- per-platform cookies (database) ---------------------------------------------------------------------
 class PlatformCookies(BaseModel):
-    domain: str
+    domain: str = ""
     text: Optional[str] = None
     label: str = ""
     aliases: Optional[list[str]] = None
@@ -253,7 +253,7 @@ async def platform_cookies_save(body: PlatformCookies):
             item = await asyncio.to_thread(cookie_store.save, body.domain, body.text, body.label, body.aliases,
                                            body.enabled, body.test_url, body.merge)
         else:
-            dom = cookie_store.norm_domain(body.domain)
+            dom = cookie_store.norm_domain(body.domain)  # editing details only
             if not cookie_store.get(dom):
                 return JSONResponse(status_code=400, content={"ok": False, "error": "Paste the cookies for a new platform."})
             item = await asyncio.to_thread(lambda: cookie_store.update_meta(

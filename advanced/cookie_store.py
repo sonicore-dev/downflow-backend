@@ -29,6 +29,15 @@ DEFAULT_ALIASES = {
     "bilibili.com": ["b23.tv"],
     "reddit.com": ["redd.it"],
 }
+PLATFORM_NAMES = {
+    "youtube.com": "YouTube", "youtu.be": "YouTube", "tiktok.com": "TikTok", "instagram.com": "Instagram",
+    "facebook.com": "Facebook", "fb.watch": "Facebook", "x.com": "X (Twitter)", "twitter.com": "X (Twitter)",
+    "reddit.com": "Reddit", "vimeo.com": "Vimeo", "twitch.tv": "Twitch", "dailymotion.com": "Dailymotion",
+    "bilibili.com": "Bilibili", "soundcloud.com": "SoundCloud", "pinterest.com": "Pinterest", "linkedin.com": "LinkedIn",
+    "snapchat.com": "Snapchat", "threads.net": "Threads", "telegram.org": "Telegram", "t.me": "Telegram",
+    "spotify.com": "Spotify", "tumblr.com": "Tumblr", "vk.com": "VK", "ok.ru": "OK.ru", "rumble.com": "Rumble",
+    "bsky.app": "Bluesky", "kick.com": "Kick", "patreon.com": "Patreon", "netflix.com": "Netflix",
+}
 _DOMAIN_RE = re.compile(r"^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 _lock = threading.RLock()
@@ -47,6 +56,31 @@ def norm_domain(raw: str) -> str:
     if not _DOMAIN_RE.match(s):
         raise ValueError("Enter a domain like youtube.com or tiktok.com")
     return s
+
+
+def registrable(host: str) -> str:
+    """'m.youtube.com' -> 'youtube.com' ('bbc.co.uk' style suffixes are kept together)."""
+    parts = host.lower().strip(".").split(".")
+    if len(parts) >= 3 and parts[-2] in ("co", "com", "org", "net", "gov", "ac") and len(parts[-1]) == 2:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def platform_name(url_or_host: str) -> str:
+    """Human platform name for logs/labels: a saved label, a well-known name, or the site's own name."""
+    host = host_of(url_or_host) if ("/" in url_or_host or ":" in url_or_host) else url_or_host.lower()
+    reg = registrable(host)
+    if reg in PLATFORM_NAMES:
+        return PLATFORM_NAMES[reg]
+    return reg.split(".")[0].capitalize() if reg else "Unknown"
+
+
+def infer_domain(text: str) -> str:
+    """Most common registrable domain among the pasted cookies (so the domain field can stay empty)."""
+    from collections import Counter
+    from .cookie_manager import parse_netscape
+    c = Counter(registrable(r[0].lstrip(".").lower()) for r in parse_netscape(text))
+    return c.most_common(1)[0][0] if c else ""
 
 
 def host_of(url: str) -> str:
@@ -159,6 +193,11 @@ def save(domain: str, text: str, label: str = "", aliases: Optional[list[str]] =
          test_url: str = "", merge: bool = False) -> dict[str, Any]:
     """Create or replace (or merge into) a platform's cookies."""
     from .cookie_manager import _render, parse_netscape, _dedupe
+    text = (text or "").strip().strip("\"'`").strip()
+    if not (domain or "").strip():
+        domain = infer_domain(text)
+        if not domain:
+            raise ValueError("Could not detect the platform from the cookies. Enter the main domain.")
     domain = norm_domain(domain)
     if len(text) > 2 * 1024 * 1024:
         raise ValueError("Cookie text is too large (max 2 MB).")
@@ -177,7 +216,7 @@ def save(domain: str, text: str, label: str = "", aliases: Optional[list[str]] =
               ON CONFLICT(domain) DO UPDATE SET label=excluded.label, aliases=excluded.aliases, enabled=excluded.enabled,
               data=excluded.data, count=excluded.count, logged_in=excluded.logged_in, expires_at=excluded.expires_at,
               updated_at=excluded.updated_at, test_url=excluded.test_url, check_valid=NULL, check_at=NULL, check_detail=NULL""",
-           (domain, label or (old or {}).get("label") or domain, ",".join(aliases), int(enabled), db.seal(body), s["count"],
+           (domain, (label or "").strip() or (old or {}).get("label") or platform_name(domain), ",".join(aliases), int(enabled), db.seal(body), s["count"],
             int(s["logged_in"]), s["expires_at"], (old or {}).get("created_at") or now, now,
             test_url or (old or {}).get("test_url") or ""))
     load()
@@ -289,9 +328,9 @@ def check(domain: str, test_url: str = "") -> dict[str, Any]:
             except Exception:  # noqa: BLE001
                 import requests as http  # type: ignore
                 kw = {}
-            hosts = (domain, *e["aliases"][:0])
-            jar = "; ".join(f"{r[5]}={r[6]}" for r in rows if _matches(domain, r[0].lstrip(".")) or r[0].lstrip(".").endswith(domain))
-            resp = http.get(f"https://{domain}/", timeout=20, allow_redirects=True,
+            jar = "; ".join(f"{r[5]}={r[6]}" for r in rows if domain.endswith(r[0].lstrip(".").lower()) or r[0].lstrip(".").lower().endswith(domain))
+            # Request the www host directly: curl drops a manual Cookie header when a redirect changes the host.
+            resp = http.get(f"https://www.{domain}/", timeout=20, allow_redirects=True,
                             headers={"Cookie": jar, "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}, **kw)
             m = _LOGGED_IN.search(resp.text or "")
             if m:

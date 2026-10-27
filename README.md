@@ -55,7 +55,7 @@ DOWNFLOW_ADMIN_PASS=choose-a-password python main.py     # http://127.0.0.1:8000
 ```
 
 * YouTube needs a **JavaScript runtime** (Node 20+ or Deno) and the `yt-dlp-ejs` solver (`yt-dlp[default]` includes it). `ffmpeg` is needed for merging/converting.
-* `GET /admin` (sign in) → **Anti-block** tab runs the *doctor*, which tells you exactly what is missing and how to fix it.
+* `GET /admin` (sign in) → **Anti-block** tab shows engine state, proxies and strategy memory.
 * Android/Termux: `sh tools/termux_setup.sh` installs everything for you.
 * Docker/Render: see [Deployment](#12-deployment).
 
@@ -84,7 +84,7 @@ DOWNFLOW_ADMIN_PASS=choose-a-password python main.py     # http://127.0.0.1:8000
                                   ┌──────▼─────────────────────────────────────┐
                                   │ advanced/: stealth · strategy_engine ·     │
                                   │ proxy_manager · pot_provider · cookies ·   │
-                                  │ updater · doctor · url_security · errors   │
+                                  │ updater · url_security · errors   │
                                   └──────┬─────────────────────────────────────┘
                                          ▼
                                   yt-dlp  ──► the target site (optionally through a proxy)
@@ -202,9 +202,8 @@ Most "403 / confirm you're not a bot" errors are caused by **IP reputation**, th
 | PO tokens | `advanced/pot_provider.py` | Detects the bgutil provider server (`:4416`) and puts PO-token routes first when it is up |
 | Cookies | `advanced/cookie_manager.py` | Hot-reloaded cookie file, write-back of rotated cookies, live validity checks. Policy `last` keeps your account away from datacentre traffic |
 | Updater | `advanced/updater.py` | Optional background `yt-dlp` upgrade (`AUTO_UPDATE=stable`), cross-process lock so only one worker runs pip |
-| Doctor | `advanced/doctor.py` | Startup + on-demand checklist (yt-dlp, JS runtime, solver, impersonation, PO provider, proxy, cookies) with the fix for each failure |
 
-**Honest limits.** No software can make a *flagged IP* trusted. If the doctor says "proxy: none" and every route returns blocks/`ip_blocked`, the fix is a clean exit IP: a residential/mobile proxy (`DOWNFLOW_PROXY=http://user-session-{sid}:pass@gate:7000`) and/or signed-in cookies. Private, paid and members-only content always needs real credentials.
+**Honest limits.** No software can make a *flagged IP* trusted. If the log says "proxy pool: 0" and every route returns blocks/`ip_blocked`, the fix is a clean exit IP: a residential/mobile proxy (`DOWNFLOW_PROXY=http://user-session-{sid}:pass@gate:7000`) and/or signed-in cookies. Private, paid and members-only content always needs real credentials.
 
 ## 7. Logging: reading the colours
 

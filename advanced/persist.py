@@ -60,6 +60,10 @@ def start() -> None:
         return
     _started = True
     def boot():
-        ok = restore()
+        try:
+            ok = restore()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("restore failed: %s", exc)
+            ok = False
         threading.Thread(target=_loop, args=(ok,), daemon=True, name="persist").start()
     threading.Thread(target=boot, daemon=True, name="persist-boot").start()

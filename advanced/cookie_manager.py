@@ -202,6 +202,11 @@ def _is_yt(url: Optional[str]) -> bool:
     return any(h == d or h.endswith("." + d) for d in _YT_HOSTS)
 
 
+def _db_only(config: ExtractorConfig) -> bool:
+    """With a persistent database configured, cookies live only there (no cookie files on the server)."""
+    return bool(config.turso_url and config.turso_token) and config.cookie_source == "auto"
+
+
 def _store_entry(url: Optional[str]) -> Optional[dict[str, Any]]:
     if not url:
         return None
@@ -219,7 +224,7 @@ def cookies_active(config: Optional[ExtractorConfig] = None, url: Optional[str] 
         return resolve_source(config)[0] is not None
     if _store_entry(url):
         return True
-    return _is_yt(url) and resolve_source(config)[0] is not None
+    return _is_yt(url) and not _db_only(config) and resolve_source(config)[0] is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -275,7 +280,10 @@ def cookie_options(config: ExtractorConfig, url: Optional[str] = None) -> Iterat
     entry = _store_entry(url)
     if entry:
         from . import cookie_store
-        tmp_dir = tempfile.mkdtemp(prefix="downflow-cookies-")
+        log.info("cookies: using saved %s cookies (%d) for %s", entry.get("label") or entry["domain"], entry["count"],
+                 cookie_store.host_of(url))
+        ram = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else None
+        tmp_dir = tempfile.mkdtemp(prefix="downflow-cookies-", dir=ram)   # request-lifetime only; never kept on disk
         try:
             os.chmod(tmp_dir, 0o700)
             copy = Path(tmp_dir) / "cookies.txt"
@@ -290,7 +298,7 @@ def cookie_options(config: ExtractorConfig, url: Optional[str] = None) -> Iterat
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return
-    if url is not None and not _is_yt(url):
+    if url is not None and (not _is_yt(url) or _db_only(config)):
         yield {}
         return
     kind, src = resolve_source(config)
