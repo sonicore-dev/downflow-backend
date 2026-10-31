@@ -1,4 +1,4 @@
-"""Entry point: ``python main.py``. Tuned uvicorn launcher (see README "Scaling")."""
+# Entry point: ``python main.py``. Tuned uvicorn launcher (see README "Scaling").
 import envfile  # noqa: F401  (loads .env)
 import logging
 import os
@@ -12,10 +12,10 @@ import app as routes  # noqa: F401  (registers routes, middleware and lifespan)
 
 
 def _loop_and_http() -> dict:
-    """Use uvloop / httptools when installed (requirements-prod.txt): ~2-4x the requests per second."""
+    # Use uvloop / httptools when installed (requirements.txt): ~2-4x the requests per second.
     out = {}
     try:
-        import uvloop  # noqa: F401
+        import uvloop  # pyright: ignore[reportMissingImports] # noqa: F401
         out["loop"] = "uvloop"
     except ImportError:
         pass

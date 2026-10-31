@@ -1,14 +1,13 @@
-"""Runs access strategies with failover, hedged racing and per-site memory.
-
-* **Memory** - the strategy that last worked for a site is tried first next time (persisted to
-  ``data/strategy_memory.json``), and strategies that keep failing are pushed to the back for 10 minutes.
-  A repeat request therefore usually succeeds on the first attempt instead of walking the whole ladder.
-* **Hedging** - if the running attempt has not answered after ``DOWNFLOW_HEDGE_DELAY`` seconds, the next
-  strategy starts in parallel on another proxy (up to ``DOWNFLOW_RACE_WIDTH`` at once). First success wins.
-* **Instant failover** - a clear block (bot check, 403, 429) starts the next strategy immediately, on a
-  different proxy / session id, and the failing proxy is parked for that site.
-* **Proxy affinity** - the winning proxy is bound to the URL so the download uses the same exit IP.
-"""
+# Runs access strategies with failover, hedged racing and per-site memory.
+#
+# * **Memory** - the strategy that last worked for a site is tried first next time (persisted to
+#   ``data/strategy_memory.json``), and strategies that keep failing are pushed to the back for 10 minutes.
+#   A repeat request therefore usually succeeds on the first attempt instead of walking the whole ladder.
+# * **Hedging** - if the running attempt has not answered after ``DOWNFLOW_HEDGE_DELAY`` seconds, the next
+#   strategy starts in parallel on another proxy (up to ``DOWNFLOW_RACE_WIDTH`` at once). First success wins.
+# * **Instant failover** - a clear block (bot check, 403, 429) starts the next strategy immediately, on a
+#   different proxy / session id, and the failing proxy is parked for that site.
+# * **Proxy affinity** - the winning proxy is bound to the URL so the download uses the same exit IP.
 
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ from typing import Any, Callable, Optional
 from . import proxy_manager
 from .error_handler import ErrorCode, ExtractionError, classify_exception
 from .extractor_config import BASE_DIR, ExtractorConfig
-from .stealth import Strategy, build_strategies, is_youtube
+from .stealth import Strategy, build_strategies, uses_player_clients
 
 __all__ = ["run", "memory_snapshot"]
 
@@ -34,7 +33,7 @@ log = logging.getLogger("downflow.strategy")
 _CONTINUE = {ErrorCode.AUTH_REQUIRED, ErrorCode.RATE_LIMITED, ErrorCode.NETWORK_ERROR, ErrorCode.TIMEOUT,
              ErrorCode.NO_FORMATS, ErrorCode.EXTRACTOR_OUTDATED, ErrorCode.INTERNAL_ERROR,
              ErrorCode.COOKIES_INVALID, ErrorCode.AGE_RESTRICTED, ErrorCode.PRIVATE_VIDEO,
-             ErrorCode.FORMAT_NOT_AVAILABLE}      # on a blocked session YouTube strips every real format ("only images")
+             ErrorCode.FORMAT_NOT_AVAILABLE}      # on a blocked session a platform may strip every real format ("only images")
 _NEEDS_COOKIES = {ErrorCode.AGE_RESTRICTED, ErrorCode.PRIVATE_VIDEO}
 _BLOCKED = {ErrorCode.AUTH_REQUIRED, ErrorCode.RATE_LIMITED}
 _BLOCKLIKE = _BLOCKED | {ErrorCode.FORMAT_NOT_AVAILABLE, ErrorCode.NO_FORMATS}
@@ -117,7 +116,7 @@ def memory_snapshot() -> dict[str, Any]:
 
 
 def _summarise(errors: list[ExtractionError]) -> ExtractionError:
-    """Pick the error that tells the operator the most. Several blocks in a row = the IP is the problem."""
+    # Pick the error that tells the operator the most. Several blocks in a row = the IP is the problem.
     blocks = sum(e.code in _BLOCKED for e in errors)
     if len(errors) >= 3 and ((blocks and all(e.code in _BLOCKLIKE for e in errors)) or blocks >= 2):
         return ExtractionError(ErrorCode.IP_BLOCKED, detail="; ".join(sorted({e.code.value for e in errors})))
@@ -127,7 +126,7 @@ def _summarise(errors: list[ExtractionError]) -> ExtractionError:
 
 def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
         report: Callable[[str, str], None], attempt_base: int = 0) -> tuple[dict[str, Any], Optional[str], str]:
-    """Return ``(info, proxy_used, strategy_name)`` or raise the most informative :class:`ExtractionError`."""
+    # Return ``(info, proxy_used, strategy_name)`` or raise the most informative :class:`ExtractionError`.
     site = proxy_manager.host_of(url)
     strategies = _MEMORY.order(site, build_strategies(url, config))
     cookie_names = {n for n, ov in strategies if ov.get("_cookies", True) is not False}
@@ -200,7 +199,7 @@ def run(url: str, config: ExtractorConfig, attempt: Attempt, deadline: float,
                         if not pending and not running:
                             raise err
                     if block_streak >= _MAX_BLOCKS_SAME_EXIT and not multi_exit and not running:
-                        logged = [x for x in pending if x[0].startswith(("yt-cookies", "cookies-"))]
+                        logged = [x for x in pending if x[0].startswith(("cookies-"))]
                         if logged and not tried_logged_in:      # last resort before giving up: the signed-in routes
                             tried_logged_in, block_streak = True, 0
                             pending[:] = logged

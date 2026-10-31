@@ -1,15 +1,14 @@
-"""PO Token provider integration (bgutil-ytdlp-pot-provider).
-
-YouTube now wants a Proof-of-Origin token for most clients. The ``bgutil-ytdlp-pot-provider`` yt-dlp plugin
-(installed from requirements.txt) fetches tokens from a small HTTP server. This module only
-
-* tells the plugin where that server is (``DOWNFLOW_POT_URL``; default ``http://127.0.0.1:4416``),
-* pings it so the strategy planner can put PO-token routes first when the server is up, and
-* exposes the state for the admin dashboard.
-
-The provider server itself is started by ``start.sh`` / the Dockerfile. A PO token helps traffic look
-legitimate but does not unblock an IP that YouTube has already flagged; pair it with a clean proxy.
-"""
+# PO Token provider integration (bgutil-ytdlp-pot-provider).
+#
+# Some platforms want a Proof-of-Origin token for most clients. The ``bgutil-ytdlp-pot-provider`` yt-dlp plugin
+# (installed from requirements.txt) fetches tokens from a small HTTP server. This module only
+#
+# * tells the plugin where that server is (``DOWNFLOW_POT_URL``; default ``http://127.0.0.1:4416``),
+# * pings it so the strategy planner can put PO-token routes first when the server is up, and
+# * exposes the state for the admin dashboard.
+#
+# The provider server itself is started by ``start.sh`` / the Dockerfile. A PO token helps traffic look
+# legitimate but does not unblock an IP that a platform has already flagged; pair it with a clean proxy.
 
 from __future__ import annotations
 
@@ -41,7 +40,7 @@ def plugin_version() -> str | None:
 
 
 def alive(config: ExtractorConfig, max_age: float = 20.0) -> bool:
-    """True when the plugin is installed and its HTTP server answers ``/ping`` (cached for ``max_age`` s)."""
+    # True when the plugin is installed and its HTTP server answers ``/ping`` (cached for ``max_age`` s).
     url = base_url(config)
     now = time.monotonic()
     with _lock:
@@ -67,7 +66,7 @@ def alive(config: ExtractorConfig, max_age: float = 20.0) -> bool:
 
 
 def extractor_args(config: ExtractorConfig) -> dict[str, dict[str, list[str]]]:
-    """Extra top-level yt-dlp ``extractor_args`` entries that point the plugin at the provider server."""
+    # Extra top-level yt-dlp ``extractor_args`` entries that point the plugin at the provider server.
     if config.pot_url:
         return {"youtubepot-bgutilhttp": {"base_url": [config.pot_url.rstrip("/")]}}
     return {}

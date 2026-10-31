@@ -1,4 +1,4 @@
-"""Modular support components for the Downflow extraction engine."""
+# Modular support components for the Downflow extraction engine.
 
 from .error_handler import (
     ErrorCode,

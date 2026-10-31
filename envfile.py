@@ -1,4 +1,4 @@
-"""Load KEY=VALUE lines from a .env file next to this file into os.environ (real environment variables win)."""
+# Load KEY=VALUE lines from a .env file next to this file into os.environ (real environment variables win).
 
 import os
 from pathlib import Path

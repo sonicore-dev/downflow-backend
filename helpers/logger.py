@@ -1,24 +1,23 @@
-"""Structured, colour-coded logging. Every colour means something (full legend in README "Reading the logs").
-
-    14:03:22.418  INF  engine     a1b2c3  start https://youtu.be/...
-    time          level component request  message
-
-* Level badge ........ DBG grey · INF green · WRN amber · ERR red · CRT magenta
-* Component .......... one colour per subsystem (access, api, engine, strategy, proxy, instant, download, ...)
-* Request id ......... the same 6 characters on every line produced while serving one request (X-Request-ID)
-* Message tags ....... start/try/ok/done/block/fail/retry/hedge/send/shed/limit ... each its own colour
-* HTTP access lines .. method colour, status by class (2xx green, 3xx cyan, 4xx amber, 5xx red) and latency by
-                       speed (fast green, normal white, slow amber, very slow red)
-
-Environment
-    DOWNFLOW_LOG_LEVEL   DEBUG | INFO (default) | WARNING | ERROR
-    DOWNFLOW_LOG_FORMAT  pretty (default) | plain (no colour) | json (one JSON object per line, for log shippers)
-    DOWNFLOW_COLOR       1 forces colour, 0 disables; NO_COLOR is honoured; otherwise colour only on a terminal
-    DOWNFLOW_LOG_BUFFER  lines kept for the admin terminal (default 3000)
-
-Floods are tamed: identical consecutive lines are collapsed ("repeated N times"), and the access log switches to
-failures + slow requests + a periodic summary when traffic exceeds DOWNFLOW_ACCESS_LOG_RPS requests per second.
-"""
+# Structured, colour-coded logging. Every colour means something (full legend in README "Reading the logs").
+#
+#     14:03:22.418  INF  engine     a1b2c3  start https://example.com/...
+#     time          level component request  message
+#
+# * Level badge ........ DBG grey · INF green · WRN amber · ERR red · CRT magenta
+# * Component .......... one colour per subsystem (access, api, engine, strategy, proxy, instant, download, ...)
+# * Request id ......... the same 6 characters on every line produced while serving one request (X-Request-ID)
+# * Message tags ....... start/try/ok/done/block/fail/retry/hedge/send/shed/limit ... each its own colour
+# * HTTP access lines .. method colour, status by class (2xx green, 3xx cyan, 4xx amber, 5xx red) and latency by
+#                        speed (fast green, normal white, slow amber, very slow red)
+#
+# Environment
+#     DOWNFLOW_LOG_LEVEL   DEBUG | INFO (default) | WARNING | ERROR
+#     DOWNFLOW_LOG_FORMAT  pretty (default) | plain (no colour) | json (one JSON object per line, for log shippers)
+#     DOWNFLOW_COLOR       1 forces colour, 0 disables; NO_COLOR is honoured; otherwise colour only on a terminal
+#     DOWNFLOW_LOG_BUFFER  lines kept for the admin terminal (default 3000)
+#
+# Floods are tamed: identical consecutive lines are collapsed ("repeated N times"), and the access log switches to
+# failures + slow requests + a periodic summary when traffic exceeds DOWNFLOW_ACCESS_LOG_RPS requests per second.
 
 from __future__ import annotations
 
@@ -55,7 +54,7 @@ LEVEL = {  # badge colours: background, text
 # component -> 256-colour code (the admin terminal uses the same hues; keep in sync with web/admin.html)
 COMPONENT = {
     "access": 75, "api": 213, "engine": 81, "strategy": 141, "stealth": 141, "proxy": 208, "instant": 191,
-    "download": 214, "retry": 179, "limit": 221, "guard": 203, "cookies": 180, "doctor": 80, "update": 114,
+    "download": 214, "retry": 179, "limit": 221, "guard": 203, "cookies": 180, "update": 114,
     "store": 80, "persist": 80, "updates": 114, "redis": 167, "config": 109, "headers": 110, "status": 114, "error": 203, "downflow": 117, "server": 117,
 }
 # message tags (first word) -> colour
@@ -162,7 +161,7 @@ class _Formatter(logging.Formatter):
 
 
 class _Console(logging.StreamHandler):
-    """stderr handler that collapses identical consecutive lines."""
+    # stderr handler that collapses identical consecutive lines.
 
     def __init__(self) -> None:
         super().__init__(sys.stderr)
@@ -186,7 +185,7 @@ class _Console(logging.StreamHandler):
         super().emit(record)
 
 
-# ---------------------------------------------------------------- ring buffer for the admin terminal
+# ring buffer for the admin terminal
 _BUF: deque = deque(maxlen=int(os.environ.get("DOWNFLOW_LOG_BUFFER", "3000") or 3000))
 _LOCK = threading.Lock()
 _SEQ = [0]
@@ -194,7 +193,7 @@ _QUIET = ("/api/v1/admin/logs", "/api/v1/admin/stats", "/api/v1/admin/tasks", "/
 
 
 class _Ring(logging.Handler):
-    """Keeps recent records in memory for the admin dashboard terminal."""
+    # Keeps recent records in memory for the admin dashboard terminal.
 
     def emit(self, record: logging.LogRecord) -> None:
         try:

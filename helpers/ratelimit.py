@@ -1,16 +1,15 @@
-"""Per-client rate limiting: O(1) token buckets, bounded memory, optional Redis for multi-worker setups.
-
-``check(bucket, ip)`` returns 0 when the request is allowed, else the seconds the client should wait.
-Buckets (override with ``DOWNFLOW_RL_<BUCKET>="30/60"`` = 30 requests per 60 s):
-
-* ``extract`` / ``download``  -- the expensive routes (default 20 per 60 s)
-* ``api``                     -- every /api/ request, a flood guard (``DOWNFLOW_API_RATE``, default 300/60)
-
-A token bucket allows short bursts up to the limit and refills continuously, and needs two numbers per client
-instead of a list of timestamps. At most ``MAX_KEYS`` clients are tracked (least recently seen are dropped),
-so a flood of spoofed addresses cannot exhaust memory. With ``DOWNFLOW_REDIS_URL`` set, counters live in Redis
-(fixed window) so every worker and instance shares one limit; if Redis hiccups the local bucket takes over.
-"""
+# Per-client rate limiting: O(1) token buckets, bounded memory, optional Redis for multi-worker setups.
+#
+# ``check(bucket, ip)`` returns 0 when the request is allowed, else the seconds the client should wait.
+# Buckets (override with ``DOWNFLOW_RL_<BUCKET>="30/60"`` = 30 requests per 60 s):
+#
+# * ``extract`` / ``download``  -- the expensive routes (default 20 per 60 s)
+# * ``api``                     -- every /api/ request, a flood guard (``DOWNFLOW_API_RATE``, default 300/60)
+#
+# A token bucket allows short bursts up to the limit and refills continuously, and needs two numbers per client
+# instead of a list of timestamps. At most ``MAX_KEYS`` clients are tracked (least recently seen are dropped),
+# so a flood of spoofed addresses cannot exhaust memory. With ``DOWNFLOW_REDIS_URL`` set, counters live in Redis
+# (fixed window) so every worker and instance shares one limit; if Redis hiccups the local bucket takes over.
 
 from __future__ import annotations
 

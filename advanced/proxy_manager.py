@@ -1,28 +1,25 @@
-"""Proxy pool with health tracking, failover and sticky sessions.
-
-Configure with environment variables:
-
-* ``DOWNFLOW_PROXY``       -- one proxy URL (``http://user:pass@host:port``, ``socks5h://...``).
-* ``DOWNFLOW_PROXY_LIST``  -- comma separated pool, or ``DOWNFLOW_PROXY_FILE`` (one per line).
-* ``DOWNFLOW_PROXY_MODE``  -- ``sticky`` (default), ``round_robin``, ``random`` or ``weighted``.
-
-Sticky sessions for rotating residential gateways
--------------------------------------------------
-Put ``{sid}`` (deterministic per video + attempt) or ``{rand}`` (always new) in the proxy URL and it is
-filled in for every request, for example::
-
-    DOWNFLOW_PROXY=http://user-session-{sid}:pass@gate.example.com:7000
-
-The same video always gets the same session id, so the IP that extracted a signed media URL is also the
-IP that downloads it. A retry after a block gets a new id, i.e. a fresh exit IP.
-
-Health + failover
------------------
-Every attempt reports its outcome. A proxy that got blocked by a site is parked for that site (exponential
-cool-down), one that is unreachable is parked globally, and the pool prefers healthy entries. The proxy
-that finally worked for a URL is remembered ("affinity") so the download reuses it. A proxy is never
-starved: when everything is cooling, the one that recovers first is used.
-"""
+# Proxy pool with health tracking, failover and sticky sessions.
+#
+# Configure with environment variables:
+#
+# * ``DOWNFLOW_PROXY``       -- one proxy URL (``http://user:pass@host:port``, ``socks5h://...``).
+# * ``DOWNFLOW_PROXY_LIST``  -- comma separated pool, or ``DOWNFLOW_PROXY_FILE`` (one per line).
+# * ``DOWNFLOW_PROXY_MODE``  -- ``sticky`` (default), ``round_robin``, ``random`` or ``weighted``.
+#
+# Sticky sessions for rotating residential gateways
+# Put ``{sid}`` (deterministic per video + attempt) or ``{rand}`` (always new) in the proxy URL and it is
+# filled in for every request, for example::
+#
+#     DOWNFLOW_PROXY=http://user-session-{sid}:pass@gate.example.com:7000
+#
+# The same video always gets the same session id, so the IP that extracted a signed media URL is also the
+# IP that downloads it. A retry after a block gets a new id, i.e. a fresh exit IP.
+#
+# Health + failover
+# Every attempt reports its outcome. A proxy that got blocked by a site is parked for that site (exponential
+# cool-down), one that is unreachable is parked globally, and the pool prefers healthy entries. The proxy
+# that finally worked for a URL is remembered ("affinity") so the download reuses it. A proxy is never
+# starved: when everything is cooling, the one that recovers first is used.
 
 from __future__ import annotations
 
@@ -62,7 +59,7 @@ def is_templated(proxy: str) -> bool:
 
 
 def host_of(url: str) -> str:
-    """Registrable-ish site key: ``www.youtube.com`` -> ``youtube.com``."""
+    # Registrable-ish site key: ``www.example.com`` -> ``example.com``.
     try:
         h = (urlsplit(url).hostname or "").lower()
     except ValueError:
@@ -72,7 +69,7 @@ def host_of(url: str) -> str:
 
 
 def redact(proxy: Optional[str]) -> str:
-    """Host:port only, never credentials (safe for logs)."""
+    # Host:port only, never credentials (safe for logs).
     if not proxy:
         return "none"
     try:
@@ -121,11 +118,10 @@ def _recover_at(proxy: str, host: str) -> float:
 
 def pick_proxy(config: ExtractorConfig, key: Optional[str] = None, *, host: Optional[str] = None,
                exclude: Iterable[str] = (), attempt: int = 0) -> Optional[str]:
-    """Return the proxy URL to use for ``key`` (normally the video URL), or None for a direct connection.
-
-    ``attempt`` > 0 deliberately moves to another proxy / a new session id; ``exclude`` lists proxy URLs
-    that already failed for this job.
-    """
+    # Return the proxy URL to use for ``key`` (normally the video URL), or None for a direct connection.
+    #
+    # ``attempt`` > 0 deliberately moves to another proxy / a new session id; ``exclude`` lists proxy URLs
+    # that already failed for this job.
     proxies = pool(config)
     if not proxies:
         return None
@@ -164,7 +160,7 @@ def pick_proxy(config: ExtractorConfig, key: Optional[str] = None, *, host: Opti
 
 
 def report(proxy: Optional[str], host: str, outcome: str, config: Optional[ExtractorConfig] = None) -> None:
-    """Record how ``proxy`` did: ``ok`` | ``blocked`` | ``rate_limited`` | ``dead``."""
+    # Record how ``proxy`` did: ``ok`` | ``blocked`` | ``rate_limited`` | ``dead``.
     if not proxy:
         return
     base_cd = config.proxy_cooldown if config else 90.0
@@ -189,7 +185,7 @@ def report(proxy: Optional[str], host: str, outcome: str, config: Optional[Extra
 
 
 def bind(key: str, proxy: Optional[str], ttl: float = 7200.0) -> None:
-    """Remember which proxy worked for ``key`` so the download uses the same exit IP."""
+    # Remember which proxy worked for ``key`` so the download uses the same exit IP.
     if not proxy or not key:
         return
     now = time.monotonic()
@@ -201,7 +197,7 @@ def bind(key: str, proxy: Optional[str], ttl: float = 7200.0) -> None:
 
 
 def stats(config: ExtractorConfig) -> list[dict]:
-    """Admin view of pool health (no credentials)."""
+    # Admin view of pool health (no credentials).
     now = time.monotonic()
     out = []
     with _lock:

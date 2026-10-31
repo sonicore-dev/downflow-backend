@@ -1,4 +1,4 @@
-"""App-update data. Stored in the database (manage it from the admin console); data/updates-data.json is the fallback."""
+# App-update data. Stored in the database (manage it from the admin console); data/updates-data.json is the fallback.
 
 import json
 import logging
@@ -35,7 +35,7 @@ def _seed(db) -> None:
 
 
 def get_update_data() -> dict:
-    """The active release. Same shape the app has always received; cached for a minute; never fails."""
+    # The active release. Same shape the app has always received; cached for a minute; never fails.
     now = time.monotonic()
     with _lock:
         if _cache["data"] is not None and now - _cache["at"] < _TTL:
@@ -62,7 +62,7 @@ def invalidate() -> None:
         _cache.update(data=None, at=0.0)
 
 
-# ---- admin operations --------------------------------------------------------------------------------------
+# admin operations
 def list_releases() -> list[dict]:
     from advanced import db
     _seed(db)

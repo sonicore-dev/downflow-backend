@@ -1,9 +1,8 @@
-"""Per-platform cookie store backed by the database (encrypted at rest).
-
-Each entry is keyed by a registrable domain ("youtube.com", "tiktok.com", any site). The extractor/downloader looks up the
-entry that matches the URL's host and uses only that entry's cookies, and only after the cookie-less routes failed.
-Entries are cached in memory (loaded at start-up and after every change) so a database outage never breaks extraction.
-"""
+# Per-platform cookie store backed by the database (encrypted at rest).
+#
+# Each entry is keyed by a registrable domain ("example.com", any site). The extractor/downloader looks up the
+# entry that matches the URL's host and uses only that entry's cookies, and only after the cookie-less routes failed.
+# Entries are cached in memory (loaded at start-up and after every change) so a database outage never breaks extraction.
 
 from __future__ import annotations
 
@@ -46,7 +45,7 @@ _loaded = False
 
 
 def norm_domain(raw: str) -> str:
-    """'https://www.YouTube.com/x' -> 'youtube.com'. Raises ValueError when it is not a plausible domain."""
+    # 'https://www.Example.com/x' -> 'example.com'. Raises ValueError when it is not a plausible domain.
     s = (raw or "").strip().lower()
     if "://" in s:
         s = urlsplit(s).hostname or ""
@@ -54,12 +53,12 @@ def norm_domain(raw: str) -> str:
     if s.startswith("www."):
         s = s[4:]
     if not _DOMAIN_RE.match(s):
-        raise ValueError("Enter a domain like youtube.com or tiktok.com")
+        raise ValueError("Enter a domain like example.com")
     return s
 
 
 def registrable(host: str) -> str:
-    """'m.youtube.com' -> 'youtube.com' ('bbc.co.uk' style suffixes are kept together)."""
+    # 'm.example.com' -> 'example.com' ('bbc.co.uk' style suffixes are kept together).
     parts = host.lower().strip(".").split(".")
     if len(parts) >= 3 and parts[-2] in ("co", "com", "org", "net", "gov", "ac") and len(parts[-1]) == 2:
         return ".".join(parts[-3:])
@@ -67,7 +66,7 @@ def registrable(host: str) -> str:
 
 
 def platform_name(url_or_host: str) -> str:
-    """Human platform name for logs/labels: a saved label, a well-known name, or the site's own name."""
+    # Human platform name for logs/labels: a saved label, a well-known name, or the site's own name.
     host = host_of(url_or_host) if ("/" in url_or_host or ":" in url_or_host) else url_or_host.lower()
     reg = registrable(host)
     if reg in PLATFORM_NAMES:
@@ -76,7 +75,7 @@ def platform_name(url_or_host: str) -> str:
 
 
 def infer_domain(text: str) -> str:
-    """Most common registrable domain among the pasted cookies (so the domain field can stay empty)."""
+    # Most common registrable domain among the pasted cookies (so the domain field can stay empty).
     from collections import Counter
     from .cookie_manager import parse_netscape
     c = Counter(registrable(r[0].lstrip(".").lower()) for r in parse_netscape(text))
@@ -117,7 +116,7 @@ _COLS = ("domain, label, aliases, enabled, data, count, logged_in, expires_at, c
 
 
 def load(force: bool = False) -> bool:
-    """(Re)load all entries from the database into memory. Returns False if the database is unreachable."""
+    # (Re)load all entries from the database into memory. Returns False if the database is unreachable.
     global _loaded
     try:
         rows = db.one(f"SELECT {_COLS} FROM cookies")
@@ -140,7 +139,7 @@ def _ensure() -> None:
 
 
 def public(e: dict[str, Any]) -> dict[str, Any]:
-    """Entry without cookie values (safe for the admin API)."""
+    # Entry without cookie values (safe for the admin API).
     out = {k: v for k, v in e.items() if k != "text"}
     out["aliases"] = list(e.get("aliases") or [])
     out["has_data"] = bool(e.get("text"))
@@ -161,7 +160,7 @@ def get(domain: str) -> Optional[dict[str, Any]]:
 
 
 def match(url: str, enabled_only: bool = True) -> Optional[dict[str, Any]]:
-    """Entry whose domain/aliases cover the URL's host (longest domain wins)."""
+    # Entry whose domain/aliases cover the URL's host (longest domain wins).
     _ensure()
     host = host_of(url)
     if not host:
@@ -191,7 +190,7 @@ def _summary(text: str) -> dict[str, Any]:
 
 def save(domain: str, text: str, label: str = "", aliases: Optional[list[str]] = None, enabled: bool = True,
          test_url: str = "", merge: bool = False) -> dict[str, Any]:
-    """Create or replace (or merge into) a platform's cookies."""
+    # Create or replace (or merge into) a platform's cookies.
     from .cookie_manager import _render, parse_netscape, _dedupe
     text = (text or "").strip().strip("\"'`").strip()
     if not (domain or "").strip():
@@ -224,7 +223,7 @@ def save(domain: str, text: str, label: str = "", aliases: Optional[list[str]] =
 
 
 def update_meta(domain: str, **fields: Any) -> dict[str, Any]:
-    """Change label / aliases / enabled / test_url without touching the cookies."""
+    # Change label / aliases / enabled / test_url without touching the cookies.
     _ensure()
     e = get(domain)
     if not e:
@@ -259,7 +258,7 @@ def record_check(domain: str, valid: Optional[bool], detail: str) -> None:
 
 
 def writeback(domain: str, text: str) -> None:
-    """Persist cookies refreshed by yt-dlp during a request (best effort, never raises)."""
+    # Persist cookies refreshed by yt-dlp during a request (best effort, never raises).
     from .cookie_manager import _render, parse_netscape, _dedupe, inspect_rows
     try:
         e = get(domain)
@@ -285,8 +284,8 @@ _LOGIN_HINT = re.compile(r"(sign[\s_-]?in|log[\s_-]?in|login)", re.I)
 
 
 def check(domain: str, test_url: str = "") -> dict[str, Any]:
-    """Blocking test of a saved entry. With a test URL (a video/page you can access) yt-dlp extracts it with these cookies;
-    otherwise the site is fetched with the cookies and inspected. Never returns cookie values."""
+    # Blocking test of a saved entry. With a test URL (a video/page you can access) yt-dlp extracts it with these cookies;
+    # otherwise the site is fetched with the cookies and inspected. Never returns cookie values.
     import os
     import tempfile
     from pathlib import Path

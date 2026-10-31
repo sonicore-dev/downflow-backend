@@ -10,6 +10,7 @@
 .tile .ico{font-size:22px;line-height:1}.tile b{font-size:16px;margin-top:6px}.tile span{color:var(--muted);font-size:14px}
 </style></head><body>
 <!--HEADER-->
+
 <main class="page">
 <section class="hero"><span class="chip"><span class="dot" id="d"></span><span id="s">Checking API…</span></span>
 <h1 class="grad" style="margin-top:18px">Downflow developer console</h1>
@@ -23,6 +24,7 @@
 <a class="card tile" href="/check-updates"><span class="ico">🔄</span><b>Version check</b><span>App version and update policy.</span></a>
 </div>
 </main>
+
 <!--FOOTER-->
 <script>
 fetch("/api/v1/health/").then(r=>r.json()).then(j=>{d.className="dot ok";s.textContent="API online · "+new Date(j.data.timestamp).toLocaleTimeString()}).catch(()=>{d.className="dot bad";s.textContent="API unreachable"})

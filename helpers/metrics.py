@@ -1,4 +1,4 @@
-"""Thread-safe counters, latency histogram and a 60 s request-rate window for the admin dashboard."""
+# Thread-safe counters, latency histogram and a 60 s request-rate window for the admin dashboard.
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def platform(name: str) -> None:
 
 
 def observe(status: int, seconds: float, counted: bool = True) -> None:
-    """Record one finished HTTP request."""
+    # Record one finished HTTP request.
     now = int(time.time())
     with _lock:
         if counted:
@@ -82,7 +82,7 @@ def export_state() -> dict:
 
 
 def restore_state(data: dict) -> None:
-    """Add counters saved before the last restart (called once at start-up)."""
+    # Add counters saved before the last restart (called once at start-up).
     if not isinstance(data, dict):
         return
     with _lock:

@@ -35,9 +35,7 @@ async def health_check():
     }
 
 
-# --------------------------------------------------------------------------- #
 # Extraction (asynchronous tasks with live status)
-# --------------------------------------------------------------------------- #
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
 
@@ -62,7 +60,7 @@ class InstantRequest(BaseModel):
 
 
 class _ExtractionRunner:
-    """Runs extraction tasks in the background with bounded concurrency and queue size."""
+    # Runs extraction tasks in the background with bounded concurrency and queue size.
 
     def __init__(self) -> None:
         config = get_config()
@@ -75,7 +73,7 @@ class _ExtractionRunner:
         self._jobs: set[asyncio.Task] = set()
 
     def submit(self, request: ExtractRequest) -> dict:
-        """Register a task and start it in the background; returns the initial status."""
+        # Register a task and start it in the background; returns the initial status.
         if self.shutting_down:
             raise ExtractionError(ErrorCode.CANCELLED)
         if self.waiting >= self.config.max_queued:
@@ -143,7 +141,7 @@ class _ExtractionRunner:
                 self.semaphore.release()
 
     async def instant(self, request: InstantRequest) -> tuple[str, dict]:
-        """Instant Save: extract the single best format (with retries) and register it as a downloadable task."""
+        # Instant Save: extract the single best format (with retries) and register it as a downloadable task.
         from engine.instant import instant_extract
 
         config, manager = self.config, self.manager
@@ -211,7 +209,7 @@ def _get_runner() -> _ExtractionRunner:
 
 
 async def shutdown_extraction() -> None:
-    """Called from the application lifespan: stop tasks and mark them failed."""
+    # Called from the application lifespan: stop tasks and mark them failed.
     if _runner is not None:
         await _runner.shutdown()
 
@@ -228,7 +226,7 @@ def _error_response(error: ExtractionError) -> JSONResponse:
 
 
 def _limited(request: Request, bucket: str) -> Optional[JSONResponse]:
-    """Per-IP rate limit for the public endpoints (signed-in developers are exempt)."""
+    # Per-IP rate limit for the public endpoints (signed-in developers are exempt).
     if _auth.is_authed(request):
         return None
     wait = _rl.check(bucket, _auth.client_ip(request))
@@ -247,7 +245,7 @@ def _task_links(task_id: str) -> dict:
 
 @router.post("/extract/", status_code=202)
 async def extract_video(payload: ExtractRequest, request: Request):
-    """Validate the request, create a task and start extracting in the background."""
+    # Validate the request, create a task and start extracting in the background.
     limited = _limited(request, "extract")
     if limited:
         return limited
@@ -272,7 +270,7 @@ async def extract_video(payload: ExtractRequest, request: Request):
 
 @router.post("/instant/")
 async def instant_save(payload: InstantRequest, request: Request):
-    """Instant Save: one call, best format chosen automatically, up to 3 attempts. Then GET ``download_url``."""
+    # Instant Save: one call, best format chosen automatically, up to 3 attempts. Then GET ``download_url``.
     from engine.instant import summarise
 
     limited = _limited(request, "extract")
@@ -295,7 +293,7 @@ async def instant_save(payload: InstantRequest, request: Request):
 
 
 async def _mgr(method: str, *args):
-    """Call the task store; Redis-backed stores block on network I/O, so they run in a worker thread."""
+    # Call the task store; Redis-backed stores block on network I/O, so they run in a worker thread.
     mgr = get_status_manager()
     fn = getattr(mgr, method)
     if getattr(mgr, "blocking", False):
@@ -344,13 +342,11 @@ async def extract_result(task_id: str):
     )
 
 
-# --------------------------------------------------------------------------- #
 # Browser download (streams the file through the server)
-# --------------------------------------------------------------------------- #
 @router.get("/download/{task_id}/")
 async def download_file(task_id: str, request: Request, format_id: Optional[str] = None,
                         container: Optional[str] = None, convert: Optional[str] = None):
-    """Browser download: parallel direct stream, live ffmpeg merge/convert, or yt-dlp pipe."""
+    # Browser download: parallel direct stream, live ffmpeg merge/convert, or yt-dlp pipe.
     from starlette.background import BackgroundTask
 
     from engine import downloader as dl

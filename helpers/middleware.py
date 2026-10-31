@@ -1,18 +1,17 @@
-"""One pure-ASGI middleware that protects and observes the whole server.
-
-Order of work for every HTTP request (cheapest checks first, so an overloaded server spends almost nothing on
-traffic it is going to refuse):
-
- 1. request id      reuse a sane ``X-Request-ID`` or mint one; exposed to every log line via a contextvar
- 2. load shedding   in-flight >= ``DOWNFLOW_MAX_INFLIGHT``  -> 503 ``busy`` + Retry-After (admin / health exempt)
- 3. flood guard     per-IP token bucket on /api/ (``DOWNFLOW_API_RATE``) -> 429 ``rate_limited``
- 4. body cap        Content-Length (or streamed bytes) above ``DOWNFLOW_MAX_BODY`` -> 413
- 5. stream cap      at most ``DOWNFLOW_MAX_IP_STREAMS`` concurrent file downloads per IP -> 429
- 6. app             the request is served; unhandled exceptions become a JSON 500 (never a stack trace)
- 7. response        security headers, X-Request-ID, X-Response-Time, metrics, access log
-
-Everything is O(1) per request and allocation-light; no request body is buffered here.
-"""
+# One pure-ASGI middleware that protects and observes the whole server.
+#
+# Order of work for every HTTP request (cheapest checks first, so an overloaded server spends almost nothing on
+# traffic it is going to refuse):
+#
+#  1. request id      reuse a sane ``X-Request-ID`` or mint one; exposed to every log line via a contextvar
+#  2. load shedding   in-flight >= ``DOWNFLOW_MAX_INFLIGHT``  -> 503 ``busy`` + Retry-After (admin / health exempt)
+#  3. flood guard     per-IP token bucket on /api/ (``DOWNFLOW_API_RATE``) -> 429 ``rate_limited``
+#  4. body cap        Content-Length (or streamed bytes) above ``DOWNFLOW_MAX_BODY`` -> 413
+#  5. stream cap      at most ``DOWNFLOW_MAX_IP_STREAMS`` concurrent file downloads per IP -> 429
+#  6. app             the request is served; unhandled exceptions become a JSON 500 (never a stack trace)
+#  7. response        security headers, X-Request-ID, X-Response-Time, metrics, access log
+#
+# Everything is O(1) per request and allocation-light; no request body is buffered here.
 
 from __future__ import annotations
 
@@ -47,7 +46,7 @@ _warned: dict[str, float] = {}
 
 
 def _warn(key: str, msg: str, *args: Any) -> None:
-    """Guard warnings at most once per key per 5 s, so an attack cannot flood the log (counters keep exact totals)."""
+    # Guard warnings at most once per key per 5 s, so an attack cannot flood the log (counters keep exact totals).
     now = time.monotonic()
     if now - _warned.get(key, 0.0) < 5.0:
         return

@@ -1,11 +1,10 @@
-"""HTTP header / user-agent management.
-
-User-agent rotation is optional (``DOWNFLOW_ROTATE_USER_AGENT``) and is *not* a
-way to bypass access controls or rate limits; it only varies the browser
-identity on ordinary page requests. A user-agent is paired with a matching
-``Accept`` header for its browser family so the combination stays coherent, and
-no client-hint (``Sec-CH-UA*``) headers are invented.
-"""
+# HTTP header / user-agent management.
+#
+# User-agent rotation is optional (``DOWNFLOW_ROTATE_USER_AGENT``) and is *not* a
+# way to bypass access controls or rate limits; it only varies the browser
+# identity on ordinary page requests. A user-agent is paired with a matching
+# ``Accept`` header for its browser family so the combination stays coherent, and
+# no client-hint (``Sec-CH-UA*``) headers are invented.
 
 from __future__ import annotations
 
@@ -62,7 +61,7 @@ def _load_cached(path_str: str, mtime_ns: int) -> tuple[str, ...]:
 
 
 def load_user_agents(path_str: str) -> tuple[str, ...]:
-    """Load and validate user-agents; fall back to built-ins if unusable."""
+    # Load and validate user-agents; fall back to built-ins if unusable.
     try:
         path = Path(path_str)
         st = path.stat()
@@ -86,11 +85,10 @@ def _accept_for(ua: str) -> str:
 
 
 def build_headers(config: ExtractorConfig, rng: Optional[random.Random] = None) -> dict[str, str]:
-    """Return extra HTTP headers for yt-dlp (``http_headers``).
-
-    Without rotation only ``Accept-Language`` is overridden and yt-dlp keeps its
-    own default (and extractor-specific) User-Agent.
-    """
+    # Return extra HTTP headers for yt-dlp (``http_headers``).
+    #
+    # Without rotation only ``Accept-Language`` is overridden and yt-dlp keeps its
+    # own default (and extractor-specific) User-Agent.
     headers = {"Accept-Language": config.accept_language}
     if config.rotate_user_agent:
         ua = (rng or random).choice(load_user_agents(config.user_agent_file))

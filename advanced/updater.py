@@ -1,11 +1,10 @@
-"""Keep yt-dlp current (YouTube breaks extractors every few weeks; a stale yt-dlp is the #1 cause of failures).
-
-``DOWNFLOW_AUTO_UPDATE`` = ``off`` (default) | ``stable`` | ``nightly``. When enabled a background thread
-checks every ``DOWNFLOW_UPDATE_INTERVAL`` seconds (and once shortly after start), runs
-``pip install -U yt-dlp[default]`` (``--pre`` for nightly) and, if the version changed, drops the old yt-dlp
-modules from memory so the next extraction uses the new code without a restart.
-``update_now()`` is also exposed through the admin API.
-"""
+# Keep yt-dlp current (extractors break every few weeks; a stale yt-dlp is the #1 cause of failures).
+#
+# ``DOWNFLOW_AUTO_UPDATE`` = ``off`` (default) | ``stable`` | ``nightly``. When enabled a background thread
+# checks every ``DOWNFLOW_UPDATE_INTERVAL`` seconds (and once shortly after start), runs
+# ``pip install -U yt-dlp[default]`` (``--pre`` for nightly) and, if the version changed, drops the old yt-dlp
+# modules from memory so the next extraction uses the new code without a restart.
+# ``update_now()`` is also exposed through the admin API.
 
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ def current_version() -> str:
 
 
 class _file_lock:
-    """Cross-process lock (multi-worker deployments): only one worker runs pip at a time."""
+    # Cross-process lock (multi-worker deployments): only one worker runs pip at a time.
 
     def __enter__(self) -> bool:
         self.f = None
@@ -58,7 +57,7 @@ class _file_lock:
 
 
 def update_now(channel: str = "stable") -> dict[str, Any]:
-    """pip-upgrade yt-dlp and reload it in this process. Returns a small status dict."""
+    # pip-upgrade yt-dlp and reload it in this process. Returns a small status dict.
     with _lock, _file_lock() as got:
         if not got:                      # another worker is already updating; do not run pip twice
             return {"ok": True, "before": current_version(), "after": current_version(), "changed": False,
@@ -90,7 +89,7 @@ def status() -> dict[str, Any]:
 
 
 def start(config: ExtractorConfig) -> None:
-    """Start the background updater if enabled."""
+    # Start the background updater if enabled.
     if config.auto_update not in ("stable", "nightly"):
         return
 

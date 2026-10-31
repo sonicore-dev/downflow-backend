@@ -28,40 +28,11 @@ cleanup_stale()
 _base_lifespan = app.router.lifespan_context
 
 
-async def _cookie_watchdog():
-    """Log the cookie state at startup, then re-test the cookies periodically (warns when they die)."""
-    import asyncio
-    import logging
-
-    from advanced import cookie_manager, get_config
-    cfg, log = get_config(), logging.getLogger("downflow.cookies")
-    if cfg.turso_url and cfg.turso_token:
-        return                      # cookies live in the database only (see persist.restore)
-    st = cookie_manager.cookie_status(cfg)
-    if st["source"] == "file":
-        log.info("cookies: file source · %s cookies · login cookies %s · expires in %s days",
-                 st.get("count"), "present" if st.get("logged_in_cookies") else "MISSING", st.get("expires_in_days"))
-    elif st["source"] == "browser":
-        log.info("cookies: browser profile source (%s)", st.get("browser"))
-    else:
-        log.info("cookies: none configured (%s)", st.get("hint"))
-    if st["source"] != "file" or cfg.cookie_check_interval <= 0:
-        return
-    await asyncio.sleep(15)
-    while True:
-        try:
-            await asyncio.to_thread(cookie_manager.check_cookies_live, cfg)
-        except Exception:  # noqa: BLE001
-            pass
-        await asyncio.sleep(cfg.cookie_check_interval)
-
-
 @asynccontextmanager
 async def _lifespan(application):
     # Wrap the existing lifespan so running extraction tasks are stopped
     # (and reported as failed) when the application shuts down.
     import asyncio
-    watchdog = asyncio.create_task(_cookie_watchdog())
     from advanced import get_config, updater
     updater.start(get_config())
     from advanced import persist
@@ -70,7 +41,6 @@ async def _lifespan(application):
         try:
             yield state
         finally:
-            watchdog.cancel()
             try:
                 await asyncio.wait_for(asyncio.to_thread(persist.flush), 5)
             except Exception:  # noqa: BLE001
@@ -81,9 +51,8 @@ async def _lifespan(application):
 app.router.lifespan_context = _lifespan
 
 
-
 class _SmartGZip(GZipMiddleware):
-    """Compress JSON/HTML/CSS, but never the media downloads (they are already compressed)."""
+    # Compress JSON/HTML/CSS, but never the media downloads (they are already compressed).
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope["path"].startswith("/api/v1/download/"):
@@ -115,7 +84,7 @@ PAGE_NAV: dict[str, list[tuple[str, str]]] = {}
 
 
 def _read(path) -> str:
-    """Read a file, re-reading only when it changes on disk."""
+    # Read a file, re-reading only when it changes on disk.
     mtime = path.stat().st_mtime
     hit = _PAGES.get(path)
     if hit is None or hit[0] != mtime:
@@ -144,7 +113,7 @@ def _render(path, request: Request) -> str:
 
 
 def _page(path, request: Request) -> HTMLResponse:
-    """Render an HTML page (shared header/footer injected) with ETag caching."""
+    # Render an HTML page (shared header/footer injected) with ETag caching.
     try:
         html = _render(path, request)
     except OSError:
@@ -158,7 +127,7 @@ def _page(path, request: Request) -> HTMLResponse:
 
 
 def _warm_up() -> None:
-    """Import the heavy extractor stack in the background so the first request is fast."""
+    # Import the heavy extractor stack in the background so the first request is fast.
     try:
         import yt_dlp
         yt_dlp.YoutubeDL({"quiet": True, "logger": None}).close()
@@ -171,7 +140,7 @@ threading.Thread(target=_warm_up, daemon=True, name="warmup").start()
 
 
 def _guard(request: Request, path):
-    """Every page needs the developer login; visitors are sent to the sign-in screen."""
+    # Every page needs the developer login; visitors are sent to the sign-in screen.
     if not is_authed(request):
         return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
     return _page(path, request)

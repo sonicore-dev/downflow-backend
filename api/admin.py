@@ -1,4 +1,4 @@
-"""Login + admin dashboard API (cookie-protected)."""
+# Login + admin dashboard API (cookie-protected).
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pydantic import BaseModel
 import asyncio
 
 from advanced import get_config
-from advanced import cookie_manager, cookie_store, db
+from advanced import cookie_store, db
 from advanced.stealth import impersonation_available
 from api.version_prefix import API_PREFIX
 from helpers import auth, metrics
@@ -149,10 +149,10 @@ async def tasks():
 @admin.get("/config")
 async def config():
     cfg = dataclasses.asdict(get_config())
-    for key in ("proxy", "cookie_file", "cookies_from_browser", "browser_profile_dir", "yt_visitor_data"):
+    for key in ("proxy", "visitor_data"):
         if cfg.get(key):
             cfg[key] = "•••• set"
-    for key in ("proxy_list", "yt_po_token"):
+    for key in ("proxy_list", "po_token"):
         if cfg.get(key):
             cfg[key] = [f"•••• {len(cfg[key])} set"]
     return cfg
@@ -160,7 +160,7 @@ async def config():
 
 @admin.get("/antiblock")
 async def antiblock():
-    """Live view of the anti-blocking layer: proxy health, PO-token provider, strategy memory, yt-dlp version."""
+    # Live view of the anti-blocking layer: proxy health, PO-token provider, strategy memory, yt-dlp version.
     from advanced import pot_provider, proxy_manager, strategy_engine, updater
     cfg = get_config()
     return {
@@ -190,28 +190,7 @@ class CookieText(BaseModel):
     text: str
 
 
-@admin.get("/cookies")
-async def cookies_status():
-    """Cookie source, counts, expiry and the last validity check. Never returns cookie values."""
-    return cookie_manager.cookie_status()
-
-
-@admin.post("/cookies")
-async def cookies_install(body: CookieText):
-    """Replace the YouTube cookie file with pasted Netscape-format text. Takes effect immediately."""
-    try:
-        return {"ok": True, "status": await asyncio.to_thread(cookie_manager.install_cookie_text, body.text)}
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(status_code=400, content={"ok": False, "error": "That is not a valid Netscape cookie file."})
-
-
-@admin.post("/cookies/check")
-async def cookies_check():
-    """Live test: does YouTube still treat the current cookies as signed in?"""
-    return await asyncio.to_thread(cookie_manager.check_cookies_live)
-
-
-# ---- per-platform cookies (database) ---------------------------------------------------------------------
+# per-platform cookies (database)
 class PlatformCookies(BaseModel):
     domain: str = ""
     text: Optional[str] = None
@@ -240,14 +219,14 @@ async def store_info():
 
 @admin.get("/platform-cookies")
 async def platform_cookies_list():
-    """All platforms with saved cookies (no cookie values)."""
+    # All platforms with saved cookies (no cookie values).
     await asyncio.to_thread(cookie_store.load)
     return {"database": db.status(), "items": cookie_store.list_entries()}
 
 
 @admin.post("/platform-cookies")
 async def platform_cookies_save(body: PlatformCookies):
-    """Add or replace a platform's cookies (or just edit its details when no cookie text is sent)."""
+    # Add or replace a platform's cookies (or just edit its details when no cookie text is sent).
     try:
         if body.text and body.text.strip():
             item = await asyncio.to_thread(cookie_store.save, body.domain, body.text, body.label, body.aliases,
@@ -292,7 +271,7 @@ async def platform_cookies_delete(domain: str):
 
 @admin.post("/platform-cookies/{domain}/check")
 async def platform_cookies_check(domain: str, test_url: str = ""):
-    """Test the saved cookies: with a test URL yt-dlp extracts it using them; otherwise a login check of the site."""
+    # Test the saved cookies: with a test URL yt-dlp extracts it using them; otherwise a login check of the site.
     try:
         return {"ok": True, **await asyncio.to_thread(lambda: cookie_store.check(cookie_store.norm_domain(domain), test_url))}
     except KeyError:
@@ -301,7 +280,7 @@ async def platform_cookies_check(domain: str, test_url: str = ""):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
-# ---- app updates (database) -------------------------------------------------------------------------------
+# app updates (database)
 class Release(BaseModel):
     version_name: str
     version_code: int
@@ -326,7 +305,7 @@ async def updates_list():
 
 @admin.post("/updates")
 async def updates_publish(body: Release):
-    """Publish a version. The app sees it at /check-updates/ within a second."""
+    # Publish a version. The app sees it at /check-updates/ within a second.
     from helpers import update_check
     try:
         data = await asyncio.to_thread(update_check.publish, body.version_name, body.version_code, body.force_update,
@@ -360,7 +339,7 @@ async def updates_delete(release_id: int):
 
 
 _EXAMPLES = {
-    "/api/v1/extract/": '{\n  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",\n  "format": "best",\n  "metadata_only": false\n}',
+    "/api/v1/extract/": '{\n  "url": "https://example.com/video",\n  "format": "best",\n  "metadata_only": false\n}',
 }
 
 

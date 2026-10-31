@@ -4,6 +4,8 @@ uvicorn
 fastapi
 fake-useragent
 pydantic
-termux-playwright
 requests
 bgutil-ytdlp-pot-provider==2.0.2
+uvloop>=0.19; sys_platform != "win32"
+httptools>=0.6
+redis>=5

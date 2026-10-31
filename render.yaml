@@ -20,8 +20,8 @@ services:
         sync: false
       - key: DOWNFLOW_PROXY            # residential/rotating proxy, see README (use {sid} for sticky sessions)
         sync: false
-      - key: DOWNFLOW_COOKIE_FILE      # add the cookie file under Environment > Secret Files
-        value: /etc/secrets/youtube.txt
+      - key: DOWNFLOW_STORE_KEY        # encrypts cookies in the database; set once, never change
+        sync: false
       - key: DOWNFLOW_COOKIE_POLICY
         value: last
       - key: DOWNFLOW_AUTO_UPDATE

@@ -1,7 +1,6 @@
-"""Restore saved state at start-up and flush it periodically (strategy memory, request counters).
-
-Everything is best effort: if the database is down the server keeps working from memory and retries later.
-"""
+# Restore saved state at start-up and flush it periodically (strategy memory, request counters).
+#
+# Everything is best effort: if the database is down the server keeps working from memory and retries later.
 
 from __future__ import annotations
 
@@ -20,17 +19,15 @@ FLUSH_EVERY = 120.0
 def restore() -> bool:
     try:
         db.get_db()
-    except db.DbError as exc:
-        log.warning("database unavailable at start-up (%s); will retry in the background", exc)
-        return False
-    cookie_store.load()
-    try:
+        cookie_store.load()
         strategy_engine.memory_restore(db.kv_get("strategy_winner"))
         metrics.restore_state(db.kv_get("metrics") or {})
-        from helpers.update_check import get_update_data
+        from helpers.update_check import invalidate, get_update_data
+        invalidate()
         get_update_data()
     except db.DbError as exc:
         log.warning("restore: %s", exc)
+        return False
     return True
 
 
@@ -43,15 +40,22 @@ def flush() -> bool:
         return False
 
 
-def _loop(restored: bool) -> None:
+def _loop() -> None:
+    seen = db.epoch()
+    tick = 0
     while True:
-        time.sleep(FLUSH_EVERY if restored else 30)
-        if not restored:                       # database was down at boot: retry
-            try:
-                restored = restore()
-            except db.DbError:
-                continue
-        flush()
+        time.sleep(30)
+        tick += 1
+        try:
+            db.one("SELECT 1")
+            if db.epoch() != seen:
+                seen = db.epoch()
+                log.info("check ok  database changed (%s); reloading saved data", db.status()["persistent"] and "turso" or "local file")
+                restore()
+            if tick % 4 == 0:
+                flush()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("persist: %s", exc)
 
 
 def start() -> None:
@@ -59,11 +63,12 @@ def start() -> None:
     if _started:
         return
     _started = True
+
     def boot():
         try:
-            ok = restore()
+            restore()
         except Exception as exc:  # noqa: BLE001
             log.warning("restore failed: %s", exc)
-            ok = False
-        threading.Thread(target=_loop, args=(ok,), daemon=True, name="persist").start()
-    threading.Thread(target=boot, daemon=True, name="persist-boot").start()
+        _loop()
+
+    threading.Thread(target=boot, daemon=True, name="persist").start()

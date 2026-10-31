@@ -1,15 +1,14 @@
-"""Fast browser downloads: nothing is ever stored on the server.
-
-Routes (fastest first, chosen by :func:`plan_download`):
-  direct   one stream, fetched with parallel ranged requests (several times faster
-           than a single connection; YouTube throttles single connections)
-  merge    video + audio muxed live by ffmpeg into mp4 / mkv / webm
-  convert  audio re-encoded live to mp3 / m4a / opus / ogg / wav / flac / aac
-  ytdlp    last resort: yt-dlp piped to the browser
-
-Only URLs from a finished extraction task are fetched, and every redirect hop is
-re-checked against the SSRF guard.
-"""
+# Fast browser downloads: nothing is ever stored on the server.
+#
+# Routes (fastest first, chosen by :func:`plan_download`):
+#   direct   one stream, fetched with parallel ranged requests (several times faster
+#            than a single connection; some hosts throttle single connections)
+#   merge    video + audio muxed live by ffmpeg into mp4 / mkv / webm
+#   convert  audio re-encoded live to mp3 / m4a / opus / ogg / wav / flac / aac
+#   ytdlp    last resort: yt-dlp piped to the browser
+#
+# Only URLs from a finished extraction task are fetched, and every redirect hop is
+# re-checked against the SSRF guard.
 
 from __future__ import annotations
 
@@ -32,7 +31,7 @@ from advanced import ErrorCode, ExtractionError, get_config
 from advanced.cookie_manager import cli_args, cookie_options, cookies_active
 from advanced.proxy_manager import pick_proxy
 from advanced import pot_provider
-from advanced.stealth import impersonation_available, is_youtube
+from advanced.stealth import impersonation_available, uses_player_clients
 from advanced.url_security import is_public_media_url
 from helpers import metrics
 
@@ -66,11 +65,9 @@ AUDIO_TARGETS = {
 }
 
 
-# --------------------------------------------------------------------------- #
 # helpers
-# --------------------------------------------------------------------------- #
 class Slot:
-    """One download slot; release() is idempotent so every cleanup path can call it."""
+    # One download slot; release() is idempotent so every cleanup path can call it.
 
     def __init__(self) -> None:
         self._done = False
@@ -127,7 +124,7 @@ def counted(it: Iterator[bytes]) -> Iterator[bytes]:
 
 
 def guarded(it: Iterator[bytes], slot: Slot) -> Iterator[bytes]:
-    """Yield from ``it`` and always free the slot, even if the client disconnects."""
+    # Yield from ``it`` and always free the slot, even if the client disconnects.
     try:
         yield from counted(it)
     finally:
@@ -137,9 +134,7 @@ def guarded(it: Iterator[bytes], slot: Slot) -> Iterator[bytes]:
         slot.release()
 
 
-# --------------------------------------------------------------------------- #
 # HTTP (thread-local sessions for connection reuse)
-# --------------------------------------------------------------------------- #
 _local = threading.local()
 
 
@@ -158,7 +153,7 @@ def _session():
 
 def open_stream(url: str, headers: dict[str, str], range_header: Optional[str] = None,
                 cache: Optional[dict] = None, proxy: Optional[str] = None):
-    """GET ``url`` following redirects manually, re-checking every hop for SSRF."""
+    # GET ``url`` following redirects manually, re-checking every hop for SSRF.
     config = get_config()
     cache = cache if cache is not None else {}
     hdrs = {"User-Agent": UA, **headers}
@@ -208,22 +203,55 @@ def _fetch_range(url: str, headers: dict, a: int, b: int, cache: dict, proxy: Op
     raise IOError(f"range {a}-{b} failed: {last}")
 
 
+def _stream_from(url: str, headers: dict, offset: int, total: int, cache: dict, proxy: Optional[str] = None) -> Iterator[bytes]:
+    # One streaming request from ``offset`` to the end. Uses a Range request, or skips bytes if the host ignores Range.
+    r = open_stream(url, headers, f"bytes={offset}-" if offset else None, cache, proxy)
+    skip = 0
+    try:
+        if r.status_code == 200 and offset:
+            skip = offset
+        elif r.status_code not in (200, 206):
+            raise IOError(f"HTTP {r.status_code}")
+        for chunk in r.iter_content(CHUNK):
+            if not chunk:
+                continue
+            if skip:
+                if len(chunk) <= skip:
+                    skip -= len(chunk)
+                    continue
+                chunk, skip = chunk[skip:], 0
+            yield chunk
+    finally:
+        r.close()
+
+
 def parallel_iter(url: str, headers: dict, total: int, proxy: Optional[str] = None) -> Iterator[bytes]:
-    """Download ``url`` with several ranged requests at once and yield the bytes in order."""
+    # Download ``url`` with several ranged requests at once and yield the bytes in order.
     cache: dict = {}
     spans = [(s, min(s + RANGE_CHUNK, total) - 1) for s in range(0, total, RANGE_CHUNK)]
     pool = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="dl")
     pending: deque = deque()
     nxt = 0
+    sent = 0
     try:
         while nxt < len(spans) and len(pending) < WORKERS + 2:
             pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache, proxy))
             nxt += 1
         while pending:
-            data = pending.popleft().result()
+            try:
+                data = pending.popleft().result()
+            except Exception as exc:  # noqa: BLE001
+                # The host refused a ranged request: carry on from this offset with one plain stream.
+                log.warning("direct range failed at %d (%s); continuing with a single stream", sent, str(exc)[:80])
+                for f in pending:
+                    f.cancel()
+                pending.clear()
+                yield from _stream_from(url, headers, sent, total, cache, proxy)
+                return
             if nxt < len(spans):
                 pending.append(pool.submit(_fetch_range, url, headers, *spans[nxt], cache, proxy))
                 nxt += 1
+            sent += len(data)
             yield data
     finally:
         for f in pending:
@@ -240,11 +268,10 @@ def header_attempts(fmt: dict, page_url: Optional[str]) -> list[dict]:
 
 
 def open_fast(fmt: dict, page_url: Optional[str], browser_range: Optional[str] = None):
-    """Open a format for download. Returns (status, total_bytes|None, iterator, upstream_headers).
-
-    Uses parallel ranged requests when the server supports them; falls back to one
-    streaming request otherwise. Raises ExtractionError if every attempt is blocked.
-    """
+    # Open a format for download. Returns (status, total_bytes|None, iterator, upstream_headers).
+    #
+    # Uses parallel ranged requests when the server supports them; falls back to one
+    # streaming request otherwise. Raises ExtractionError if every attempt is blocked.
     url, last = fmt["download_url"], "no attempt"
     proxy = fmt.get("_proxy")
     for hdrs in header_attempts(fmt, page_url):
@@ -262,7 +289,14 @@ def open_fast(fmt: dict, page_url: Optional[str], browser_range: Optional[str] =
                 probe.close()
                 total = int(m.group(1)) if m else 0
                 if total > RANGE_CHUNK:
-                    return 200, total, parallel_iter(probe.final_url, hdrs, total, proxy), probe.headers
+                    mid = open_stream(probe.final_url, hdrs, f"bytes={RANGE_CHUNK}-{RANGE_CHUNK}", None, proxy)
+                    mid_ok = mid.status_code == 206
+                    mid.close()
+                    if mid_ok:
+                        return 200, total, parallel_iter(probe.final_url, hdrs, total, proxy), probe.headers
+                    log.info("direct host rejects ranged requests; using a single stream")
+                    r = open_stream(url, hdrs, None, None, proxy)
+                    return r.status_code, total, iter_response(r), r.headers
                 r = open_stream(url, hdrs, None, None, proxy)
                 return r.status_code, total or None, iter_response(r), r.headers
             if probe.status_code < 400:            # server ignores Range: plain stream
@@ -278,16 +312,14 @@ def open_fast(fmt: dict, page_url: Optional[str], browser_range: Optional[str] =
     raise ExtractionError(ErrorCode.AUTH_REQUIRED, detail=f"upstream {last}")
 
 
-# --------------------------------------------------------------------------- #
 # planning
-# --------------------------------------------------------------------------- #
 def _usable(f: dict, config, cache: dict) -> bool:
     return bool(f.get("download_url")) and not f.get("is_manifest") and \
         is_public_media_url(f["download_url"], config, cache)
 
 
 def plan_download(data: dict, format_id: Optional[str], convert: Optional[str] = None):
-    """Return ("direct", fmt) | ("merge", [video, audio]) | ("convert", fmt) | ("ytdlp", selector)."""
+    # Return ("direct", fmt) | ("merge", [video, audio]) | ("convert", fmt) | ("ytdlp", selector).
     config, cache = get_config(), {}
     formats = [f for f in data.get("formats", []) if _usable(f, config, cache)]
     streams = [s for s in (data.get("media") or {}).get("streams", []) if _usable(s, config, cache)]
@@ -334,7 +366,7 @@ def plan_download(data: dict, format_id: Optional[str], convert: Optional[str] =
 
 
 def pick_container(parts: list[dict], want: Optional[str]) -> str:
-    """Honour the requested container only when both codecs fit it; otherwise use MKV (takes anything)."""
+    # Honour the requested container only when both codecs fit it; otherwise use MKV (takes anything).
     vc, ac = (parts[0].get("vcodec") or "").lower(), (parts[1].get("acodec") or "").lower()
     webm_ok = vc.startswith(("vp9", "vp09", "vp8", "av01")) and ac.startswith(("opus", "vorbis"))
     mp4_ok = vc.startswith(("avc", "h264", "hev", "hvc", "av01", "vp09", "vp9")) and \
@@ -350,9 +382,7 @@ def pick_container(parts: list[dict], want: Optional[str]) -> str:
     return "webm" if webm_ok else "mkv"
 
 
-# --------------------------------------------------------------------------- #
 # ffmpeg routes
-# --------------------------------------------------------------------------- #
 def _feed(it: Iterator[bytes], sink) -> None:
     try:
         for chunk in it:
@@ -407,7 +437,7 @@ def _run_ffmpeg(inputs: list[Iterator[bytes]], out_args: list[str]) -> Iterator[
 
 
 def open_merge(parts: list[dict], page_url: Optional[str], container: str):
-    """Start a live video+audio merge. Returns (iterator, container) or None if ffmpeg produced nothing."""
+    # Start a live video+audio merge. Returns (iterator, container) or None if ffmpeg produced nothing.
     for cont in dict.fromkeys([container, "mkv"]):           # fall back to mkv, which takes any codec
         flags = {"mp4": ["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4"],
                  "webm": ["-f", "webm"], "mkv": ["-f", "matroska"]}[cont]
@@ -429,7 +459,7 @@ def open_merge(parts: list[dict], page_url: Optional[str], container: str):
 
 
 def open_convert(src: dict, page_url: Optional[str], target: str):
-    """Start live audio conversion. Returns (iterator, ext, mime) or None."""
+    # Start live audio conversion. Returns (iterator, ext, mime) or None.
     ext, mime, args, copy_rule = AUDIO_TARGETS[target]
     if copy_rule and (src.get("acodec") or "").lower().startswith(copy_rule[0]):
         args = copy_rule[1]
@@ -446,34 +476,32 @@ def open_convert(src: dict, page_url: Optional[str], target: str):
     return chained(), ext, mime
 
 
-# --------------------------------------------------------------------------- #
 # yt-dlp last resort (streamed through a pipe)
-# --------------------------------------------------------------------------- #
 def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> Iterator[bytes]:
-    """Last resort: yt-dlp pipes the media to us. Uses the same cookies, proxy and anti-bot flags as extraction."""
+    # Last resort: yt-dlp pipes the media to us. Uses the same cookies, proxy and anti-bot flags as extraction.
     config = get_config()
     sel = "b/bv*" if ("+" in selector or selector in ("bv*+ba/b", "best")) else selector
     proxy = proxy or pick_proxy(config, page_url)
     cookies = cookies_active(config, page_url)
 
-    def yt(clients: str) -> list[str]:
+    def pc(clients: str) -> list[str]:
         extra = [f"player_client={clients}"]
-        if config.yt_po_token:
-            extra += [f"po_token={t}" for t in config.yt_po_token]
-        if config.yt_visitor_data:
-            extra.append(f"visitor_data={config.yt_visitor_data}")
+        if config.po_token:
+            extra += [f"po_token={t}" for t in config.po_token]
+        if config.visitor_data:
+            extra.append(f"visitor_data={config.visitor_data}")
         args = ["--extractor-args", "youtube:" + ";".join(extra)]
         if config.pot_url:
             args += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={config.pot_url}"]
         return args
 
-    if is_youtube(page_url):
+    if uses_player_clients(page_url):
         plain: list[tuple[list[str], bool]] = []
-        if config.yt_player_clients:
-            plain.append((yt(",".join(config.yt_player_clients)), False))
-        plain += [(yt("mweb,web_safari" if pot_provider.alive(config) else "web_safari"), False),
-                  (yt("tv"), False), (yt("android_vr,ios"), False)]
-        logged = [(yt("web_safari,web,mweb,tv"), True), (yt("tv,mweb,web_embedded"), True)] \
+        if config.player_clients:
+            plain.append((pc(",".join(config.player_clients)), False))
+        plain += [(pc("mweb,web_safari" if pot_provider.alive(config) else "web_safari"), False),
+                  (pc("tv"), False), (pc("android_vr,ios"), False)]
+        logged = [(pc("web_safari,web,mweb,tv"), True), (pc("tv,mweb,web_embedded"), True)] \
             if cookies and config.cookie_policy != "never" else []
         ladders = logged + plain if config.cookie_policy == "first" else plain + logged
     else:
@@ -519,12 +547,10 @@ def ytdlp_stream(page_url: str, selector: str, proxy: Optional[str] = None) -> I
     raise ExtractionError(ErrorCode.AUTH_REQUIRED, detail="all download methods blocked")
 
 
-# --------------------------------------------------------------------------- #
 # entry point used by the API
-# --------------------------------------------------------------------------- #
 def serve(data: dict, *, format_id: Optional[str], container: Optional[str], convert: Optional[str],
           browser_range: Optional[str]) -> dict[str, Any]:
-    """Blocking: pick the route, open it and return {body, status, headers, media_type}."""
+    # Blocking: pick the route, open it and return {body, status, headers, media_type}.
     page_url = data.get("webpage_url") or data.get("input_url")
     title = data.get("title")
     proxy = pick_proxy(get_config(), data.get("input_url") or page_url)   # same proxy that extracted it (IP-bound URLs)

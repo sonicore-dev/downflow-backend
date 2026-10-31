@@ -1,10 +1,9 @@
-"""Client IP resolution that cannot be spoofed with a forged X-Forwarded-For.
-
-``DOWNFLOW_CLIENT_IP_HEADER`` (for example ``CF-Connecting-IP``) wins when present. Otherwise the address is
-taken ``DOWNFLOW_PROXY_HOPS`` entries from the RIGHT of X-Forwarded-For (each trusted proxy appends the
-address it saw), so anything a client prepends is ignored. With 0 hops the TCP peer is used.
-IPv6 addresses are collapsed to their /64 so one client cannot dodge limits by rotating addresses.
-"""
+# Client IP resolution that cannot be spoofed with a forged X-Forwarded-For.
+#
+# ``DOWNFLOW_CLIENT_IP_HEADER`` (for example ``CF-Connecting-IP``) wins when present. Otherwise the address is
+# taken ``DOWNFLOW_PROXY_HOPS`` entries from the RIGHT of X-Forwarded-For (each trusted proxy appends the
+# address it saw), so anything a client prepends is ignored. With 0 hops the TCP peer is used.
+# IPv6 addresses are collapsed to their /64 so one client cannot dodge limits by rotating addresses.
 
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ def client_ip(headers: Iterable[tuple[bytes, bytes]], peer: Optional[str]) -> st
 
 
 def limit_key(ip: str) -> str:
-    """Key used for rate limiting: IPv6 -> /64 network, IPv4 unchanged."""
+    # Key used for rate limiting: IPv6 -> /64 network, IPv4 unchanged.
     if ":" in ip:
         try:
             return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address)

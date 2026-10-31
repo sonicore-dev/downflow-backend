@@ -1,10 +1,9 @@
-"""Error classification and sanitisation for the extraction engine.
-
-Raw ``yt-dlp`` exceptions can contain URLs with signed query strings, cookie
-fragments and local paths. Everything returned to API clients goes through
-this module; the raw detail is only ever written to server logs (after
-sanitising).
-"""
+# Error classification and sanitisation for the extraction engine.
+#
+# Raw ``yt-dlp`` exceptions can contain URLs with signed query strings, cookie
+# fragments and local paths. Everything returned to API clients goes through
+# this module; the raw detail is only ever written to server logs (after
+# sanitising).
 
 from __future__ import annotations
 
@@ -79,7 +78,7 @@ _META: dict[ErrorCode, tuple[int, bool, str]] = {
 
 @dataclass
 class ExtractionError(Exception):
-    """Sanitised, classified extraction failure."""
+    # Sanitised, classified extraction failure.
 
     code: ErrorCode
     message: str = ""
@@ -106,9 +105,7 @@ class ExtractionError(Exception):
         return data
 
 
-# --------------------------------------------------------------------------- #
 # Sanitising helpers
-# --------------------------------------------------------------------------- #
 _URL_RE = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
 _SECRET_RE = re.compile(
     r"(?i)\b(cookie|set-cookie|authorization|proxy-authorization|x-[a-z-]*token|password|passwd|"
@@ -118,7 +115,7 @@ _PATH_RE = re.compile(r"(?<![\w:/])(?:/[\w.\-@+~ ]+){2,}|[A-Za-z]:\\(?:[^\\\s]+\
 
 
 def sanitize_url(url: str) -> str:
-    """Strip credentials, query string and fragment so a URL is safe to log."""
+    # Strip credentials, query string and fragment so a URL is safe to log.
     try:
         parts = urlsplit(url)
         host = parts.hostname or ""
@@ -133,7 +130,7 @@ def sanitize_url(url: str) -> str:
 
 
 def sanitize_text(text: str, limit: int = 500) -> str:
-    """Remove URLs' credentials/queries, secrets and filesystem paths from text."""
+    # Remove URLs' credentials/queries, secrets and filesystem paths from text.
     if not text:
         return ""
     text = _URL_RE.sub(lambda m: sanitize_url(m.group(0)), str(text))
@@ -144,9 +141,7 @@ def sanitize_text(text: str, limit: int = 500) -> str:
     return text[:limit]
 
 
-# --------------------------------------------------------------------------- #
 # Classification
-# --------------------------------------------------------------------------- #
 _PATTERNS: list[tuple[ErrorCode, re.Pattern[str]]] = [
     (ErrorCode.RATE_LIMITED, re.compile(r"http error 429|too many requests|rate[- ]?limit|try again later|temporarily blocked", re.I)),
     (ErrorCode.COOKIES_INVALID, re.compile(r"cookies? (?:are |is )?(?:no longer valid|invalid|expired|rejected)|cookie file|netscape format", re.I)),
@@ -165,7 +160,7 @@ _PATTERNS: list[tuple[ErrorCode, re.Pattern[str]]] = [
 
 
 def _unwrap(exc: BaseException) -> BaseException:
-    """Return the innermost interesting exception from a yt-dlp DownloadError."""
+    # Return the innermost interesting exception from a yt-dlp DownloadError.
     seen = 0
     while seen < 5:
         seen += 1
@@ -181,7 +176,7 @@ def _unwrap(exc: BaseException) -> BaseException:
 
 
 def classify_exception(exc: BaseException) -> ExtractionError:
-    """Convert any exception raised during extraction into an ExtractionError."""
+    # Convert any exception raised during extraction into an ExtractionError.
     if isinstance(exc, ExtractionError):
         return exc
 

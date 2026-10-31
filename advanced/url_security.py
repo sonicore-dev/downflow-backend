@@ -1,18 +1,17 @@
-"""URL validation and SSRF protection.
-
-Layers:
-1. Syntax: absolute http/https only, no embedded credentials, allowed ports.
-2. DNS: every address the host resolves to must be globally routable
-   (no loopback, private, link-local, CGNAT, multicast, reserved ranges).
-3. Redirects: the submitted URL's redirect chain is walked manually and each
-   hop is re-validated before yt-dlp is allowed to fetch it.
-4. Output: media URLs returned by extractors are checked the same way.
-
-Known limitation: yt-dlp performs its own DNS lookups, so a hostile DNS server
-could still answer differently between our check and its fetch (DNS rebinding).
-For high-assurance deployments, also enforce egress filtering at the network
-level (firewall / proxy) -- see README.
-"""
+# URL validation and SSRF protection.
+#
+# Layers:
+# 1. Syntax: absolute http/https only, no embedded credentials, allowed ports.
+# 2. DNS: every address the host resolves to must be globally routable
+#    (no loopback, private, link-local, CGNAT, multicast, reserved ranges).
+# 3. Redirects: the submitted URL's redirect chain is walked manually and each
+#    hop is re-validated before yt-dlp is allowed to fetch it.
+# 4. Output: media URLs returned by extractors are checked the same way.
+#
+# Known limitation: yt-dlp performs its own DNS lookups, so a hostile DNS server
+# could still answer differently between our check and its fetch (DNS rebinding).
+# For high-assurance deployments, also enforce egress filtering at the network
+# level (firewall / proxy) -- see README.
 
 from __future__ import annotations
 
@@ -75,7 +74,7 @@ def _assert_public_host(host: str, port: int, config: ExtractorConfig) -> None:
 
 
 def validate_url(raw: str, config: ExtractorConfig, *, resolve: bool = True) -> str:
-    """Validate and normalise a user-supplied URL; return the normalised form."""
+    # Validate and normalise a user-supplied URL; return the normalised form.
     if not isinstance(raw, str):
         raise ExtractionError(ErrorCode.INVALID_URL)
     url = raw.strip()
@@ -133,11 +132,10 @@ def _build_probe_opener(config: ExtractorConfig) -> Optional[urllib.request.Open
 
 
 def resolve_redirects(url: str, config: ExtractorConfig, user_agent: Optional[str] = None) -> str:
-    """Follow redirects manually, validating every hop. Returns the final URL.
-
-    Network errors during the probe are not fatal (yt-dlp will report them with
-    better context); only a hop that points somewhere forbidden raises.
-    """
+    # Follow redirects manually, validating every hop. Returns the final URL.
+    #
+    # Network errors during the probe are not fatal (yt-dlp will report them with
+    # better context); only a hop that points somewhere forbidden raises.
     if not config.check_redirects or config.max_redirects <= 0:
         return url
     opener = _build_probe_opener(config)
@@ -174,7 +172,7 @@ def resolve_redirects(url: str, config: ExtractorConfig, user_agent: Optional[st
 
 
 def is_public_media_url(url: str, config: ExtractorConfig, cache: dict[str, bool]) -> bool:
-    """True if ``url`` is http(s) and its host resolves only to public addresses."""
+    # True if ``url`` is http(s) and its host resolves only to public addresses.
     try:
         parts = urlsplit(url)
         if parts.scheme.lower() not in ("http", "https") or not parts.hostname:

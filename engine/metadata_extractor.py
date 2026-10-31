@@ -1,19 +1,18 @@
-"""Video metadata and media-URL extraction engine built on yt-dlp.
-
-This module is deliberately independent of FastAPI: it takes a URL and options
-and returns a plain JSON-serialisable ``dict`` or raises
-:class:`advanced.ExtractionError`. Extraction is blocking; async callers should
-run :func:`extract` in a worker thread.
-
-Pipeline::
-
-    validate/normalise URL  ->  SSRF + redirect checks  ->  build yt-dlp options
-    -> extract_info(download=False) with bounded retries  ->  normalise result
-
-No media is ever downloaded. Media URLs are returned only if the extractor
-exposed them, they are http(s), and their hosts resolve to public addresses. A
-webpage URL is never substituted for a missing media URL.
-"""
+# Video metadata and media-URL extraction engine built on yt-dlp.
+#
+# This module is deliberately independent of FastAPI: it takes a URL and options
+# and returns a plain JSON-serialisable ``dict`` or raises
+# :class:`advanced.ExtractionError`. Extraction is blocking; async callers should
+# run :func:`extract` in a worker thread.
+#
+# Pipeline::
+#
+#     validate/normalise URL  ->  SSRF + redirect checks  ->  build yt-dlp options
+#     -> extract_info(download=False) with bounded retries  ->  normalise result
+#
+# No media is ever downloaded. Media URLs are returned only if the extractor
+# exposed them, they are http(s), and their hosts resolve to public addresses. A
+# webpage URL is never substituted for a missing media URL.
 
 from __future__ import annotations
 
@@ -92,11 +91,9 @@ _SIGNING_PARAM_RE = re.compile(
 _MANIFEST_PROTOCOLS = {"m3u8", "m3u8_native", "http_dash_segments", "http_dash_segments_generator", "ism", "f4m"}
 
 
-# --------------------------------------------------------------------------- #
 # Public helpers
-# --------------------------------------------------------------------------- #
 def get_engine_info() -> dict[str, Optional[str]]:
-    """Return the installed yt-dlp version (useful when diagnosing outdated extractors)."""
+    # Return the installed yt-dlp version (useful when diagnosing outdated extractors).
     try:
         from yt_dlp.version import __version__
 
@@ -106,7 +103,7 @@ def get_engine_info() -> dict[str, Optional[str]]:
 
 
 def resolve_format_selector(fmt: Optional[str], config: ExtractorConfig) -> str:
-    """Map aliases and validate a user-supplied format selector."""
+    # Map aliases and validate a user-supplied format selector.
     value = (fmt or config.default_format or "best").strip()
     key = value.lower()
     if key in FORMAT_ALIASES:
@@ -118,17 +115,15 @@ def resolve_format_selector(fmt: Optional[str], config: ExtractorConfig) -> str:
 
 
 def precheck_request(url: str, format: Optional[str] = None, config: Optional[ExtractorConfig] = None) -> str:  # noqa: A002
-    """Validate URL (syntax, SSRF/DNS) and format selector without extracting; returns the normalised URL."""
+    # Validate URL (syntax, SSRF/DNS) and format selector without extracting; returns the normalised URL.
     config = config or get_config()
     resolve_format_selector(format, config)
     return validate_url(url, config)
 
 
-# --------------------------------------------------------------------------- #
 # yt-dlp options
-# --------------------------------------------------------------------------- #
 class _YdlLogger:
-    """Route yt-dlp output into our logger, with secrets and URL queries removed."""
+    # Route yt-dlp output into our logger, with secrets and URL queries removed.
 
     def __init__(self, verbose: bool) -> None:
         self.verbose = verbose
@@ -160,7 +155,7 @@ def build_ydl_options(
     proxy: Optional[str] = None,
     single: bool = False,
 ) -> dict[str, Any]:
-    """Construct the yt-dlp option dict (no downloads, no user config files)."""
+    # Construct the yt-dlp option dict (no downloads, no user config files).
     opts: dict[str, Any] = {
         "skip_download": True,
         "quiet": True,
@@ -188,7 +183,7 @@ def build_ydl_options(
     if proxy:
         opts["proxy"] = _validated_proxy(proxy)
     if config.force_ipv4:
-        opts["source_address"] = "0.0.0.0"            # yt-dlp -4: YouTube links are bound to one IP family
+        opts["source_address"] = "0.0.0.0"            # yt-dlp -4: media links are bound to one IP family
     if config.sleep_requests:
         opts["sleep_interval_requests"] = config.sleep_requests
     if config.sleep_interval:
@@ -212,9 +207,7 @@ def _validated_proxy(proxy: str) -> str:
     return proxy
 
 
-# --------------------------------------------------------------------------- #
 # Extraction
-# --------------------------------------------------------------------------- #
 def _run_yt_dlp(url: str, opts: dict[str, Any]) -> dict[str, Any]:
     import yt_dlp  # imported lazily so importing this module never needs yt-dlp
 
@@ -228,7 +221,7 @@ def _run_yt_dlp(url: str, opts: dict[str, Any]) -> dict[str, Any]:
 
 def _run_strategies(url: str, base_opts: dict[str, Any], policy: RetryPolicy, deadline: float,
                     config: ExtractorConfig, on_retry, report, attempt_base: int = 0) -> tuple[dict[str, Any], Optional[str]]:
-    """Run the access strategies (see advanced.strategy_engine). Returns ``(info, proxy_used)``."""
+    # Run the access strategies (see advanced.strategy_engine). Returns ``(info, proxy_used)``.
     quick = RetryPolicy(max_attempts=2, base_delay=policy.base_delay, max_delay=policy.max_delay,
                         rate_limit_max_attempts=1)
     main_cookie = base_opts.get("cookiefile")
@@ -260,7 +253,7 @@ def _run_strategies(url: str, base_opts: dict[str, Any], policy: RetryPolicy, de
     info, proxy, name = strategy_engine.run(url, config, attempt, deadline, report, attempt_base)
     winner_copy = cookie_copies.get(name)
     if winner_copy and main_cookie:
-        try:                                  # keep cookies YouTube rotated during the winning attempt
+        try:                                  # keep cookies the site rotated during the winning attempt
             shutil.copyfile(winner_copy, main_cookie)
         except OSError:
             pass
@@ -288,7 +281,7 @@ def _cache_put(key: tuple, value: dict, cap: int) -> None:
 
 
 class _Flight:
-    """One in-progress extraction that identical concurrent requests wait for instead of repeating."""
+    # One in-progress extraction that identical concurrent requests wait for instead of repeating.
     __slots__ = ("event", "result", "error")
 
     def __init__(self) -> None:
@@ -313,18 +306,17 @@ def extract(
     single: bool = False,
     attempt: int = 0,
 ) -> dict[str, Any]:
-    """Extract metadata (and media URLs unless ``metadata_only``) for ``url``.
-
-    Raises :class:`ExtractionError` for every failure; messages are safe to show
-    to clients and ``error.detail`` holds sanitised diagnostics for logs.
-
-    ``progress(stage, message)`` is called at each real lifecycle stage (see
-    ``STAGES``); ``cancelled()`` is polled between stages and before retries.
-    Neither couples the engine to any web framework.
-
-    Speed: identical requests are served from a short-lived cache, identical *concurrent* requests share
-    one extraction, and the strategy engine remembers which access method last worked for each site.
-    """
+    # Extract metadata (and media URLs unless ``metadata_only``) for ``url``.
+    #
+    # Raises :class:`ExtractionError` for every failure; messages are safe to show
+    # to clients and ``error.detail`` holds sanitised diagnostics for logs.
+    #
+    # ``progress(stage, message)`` is called at each real lifecycle stage (see
+    # ``STAGES``); ``cancelled()`` is polled between stages and before retries.
+    # Neither couples the engine to any web framework.
+    #
+    # Speed: identical requests are served from a short-lived cache, identical *concurrent* requests share
+    # one extraction, and the strategy engine remembers which access method last worked for each site.
     config = config or get_config()
     started = time.monotonic()
     deadline = started + (timeout or config.request_timeout)
@@ -434,9 +426,7 @@ def _log_failure(err: ExtractionError, safe_url: str, config: ExtractorConfig) -
     log.log(level, "failed %s · %s · %s", err.code.value, safe_url or "-", sanitize_text(err.detail or "", 140))
 
 
-# --------------------------------------------------------------------------- #
 # Normalisation
-# --------------------------------------------------------------------------- #
 def _iso_date(value: Any) -> Optional[str]:
     if isinstance(value, str) and re.fullmatch(r"\d{8}", value):
         return f"{value[:4]}-{value[4:6]}-{value[6:]}"
@@ -469,7 +459,7 @@ def _codec(value: Any) -> Optional[str]:
 
 
 def _expiry(url: str) -> dict[str, Any]:
-    """Best-effort lifetime hint for a media URL (never authoritative)."""
+    # Best-effort lifetime hint for a media URL (never authoritative).
     try:
         query = {k.lower(): v[0] for k, v in parse_qs(urlsplit(url).query).items()}
     except ValueError:
@@ -626,7 +616,7 @@ def _common_metadata(info: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_result(info: dict[str, Any], config: ExtractorConfig, *, metadata_only: bool,
                      format_selector: str, input_url: str) -> dict[str, Any]:
-    """Convert a raw yt-dlp info dict into the stable response structure."""
+    # Convert a raw yt-dlp info dict into the stable response structure.
     platform = {
         "key": _str(info.get("extractor_key") or info.get("ie_key"), 100),
         "name": _str(info.get("extractor"), 100),
@@ -784,12 +774,11 @@ def _normalize_video(info: dict[str, Any], config: ExtractorConfig, base: dict[s
 
 
 def _set_download_url(result: dict[str, Any], streams: list[dict[str, Any]], separate: bool) -> None:
-    """Populate the first-class ``download_url`` fields from the selected streams.
-
-    ``download_url`` is set only when the selection is one single stream, so a
-    lone audio or video stream is never presented as a complete video. The URL
-    comes straight from the extractor; it is not fetched or verified here.
-    """
+    # Populate the first-class ``download_url`` fields from the selected streams.
+    #
+    # ``download_url`` is set only when the selection is one single stream, so a
+    # lone audio or video stream is never presented as a complete video. The URL
+    # comes straight from the extractor; it is not fetched or verified here.
     if separate:
         result["download_url_note"] = (
             "The selected quality is delivered as separate video and audio streams, so no single "

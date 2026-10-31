@@ -8,12 +8,14 @@
 .err{color:#fecdd3;background:#2b1519;border:1px solid #6b2630;padding:14px 16px;border-radius:10px;font-size:14px}
 </style></head><body>
 <!--HEADER-->
+
 <main class="page narrow">
 <div class="ph"><h1>Version check</h1><p>Backend and app update information.</p></div>
 <div class="card"><div class="head"><b>Server status</b><span class="chip"><span class="dot" id="d"></span><span id="s">Checking</span></span></div>
 <div id="c" class="muted">Loading…</div>
 <button class="btn ghost" style="width:100%;margin-top:20px" id="b">Check again</button></div>
 </main>
+
 <!--FOOTER-->
 <script>
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));

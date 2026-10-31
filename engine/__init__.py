@@ -1,4 +1,4 @@
-"""Downflow extraction engine (framework independent)."""
+# Downflow extraction engine (framework independent).
 
 from .metadata_extractor import FORMAT_ALIASES, STAGES, extract, get_engine_info, precheck_request
 

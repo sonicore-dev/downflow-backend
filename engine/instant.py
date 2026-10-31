@@ -1,11 +1,10 @@
-"""Instant Save: one call that finds the single best format for a link and returns it ready to download.
-
-No format picker, no playlist walking, no full format table: the selector asks yt-dlp for exactly one
-file (best single file first so nothing has to be merged, merge only when the site offers nothing else).
-Up to ``instant_attempts`` tries share one time budget; every retry asks the strategy engine for a fresh
-route / proxy session, and pointless retries (an IP block from the only IP we have) are skipped so a
-blocked address is not hammered.
-"""
+# Instant Save: one call that finds the single best format for a link and returns it ready to download.
+#
+# No format picker, no playlist walking, no full format table: the selector asks yt-dlp for exactly one
+# file (best single file first so nothing has to be merged, merge only when the site offers nothing else).
+# Up to ``instant_attempts`` tries share one time budget; every retry asks the strategy engine for a fresh
+# route / proxy session, and pointless retries (an IP block from the only IP we have) are skipped so a
+# blocked address is not hammered.
 
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ def _has_streams(result: dict[str, Any]) -> bool:
 
 def instant_extract(url: str, kind: str, config: ExtractorConfig, *, attempt0: int = 0,
                     cancelled: Optional[Callable[[], bool]] = None) -> dict[str, Any]:
-    """Blocking. Returns the extraction result for the best ``kind`` ("video" | "audio") or raises."""
+    # Blocking. Returns the extraction result for the best ``kind`` ("video" | "audio") or raises.
     selector = config.instant_audio_format if kind == "audio" else config.instant_video_format
     pool = proxy_manager.pool(config)
     multi_exit = len(pool) > 1 or any(proxy_manager.is_templated(p) for p in pool)
@@ -67,7 +66,7 @@ def instant_extract(url: str, kind: str, config: ExtractorConfig, *, attempt0: i
 
 
 def summarise(result: dict[str, Any], kind: str) -> dict[str, Any]:
-    """Small, UI-friendly description of what will be downloaded."""
+    # Small, UI-friendly description of what will be downloaded.
     streams = (result.get("media") or {}).get("streams") or []
     video = next((s for s in streams if s.get("role") in ("video", "combined")), None)
     ext = (streams[0].get("ext") if len(streams) == 1 else None) or ("m4a" if kind == "audio" else "mp4")

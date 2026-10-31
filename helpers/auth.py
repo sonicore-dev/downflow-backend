@@ -1,9 +1,8 @@
-"""Admin login: signed, long-lived cookie ("remember me" by default).
-
-Credentials default to the values below and can be overridden with
-DOWNFLOW_ADMIN_USER / DOWNFLOW_ADMIN_PASS. Set DOWNFLOW_SECRET to keep sessions
-valid across servers; otherwise a stable secret is derived from the admin login, so sessions survive redeploys.
-"""
+# Admin login: signed, long-lived cookie ("remember me" by default).
+#
+# Credentials default to the values below and can be overridden with
+# DOWNFLOW_ADMIN_USER / DOWNFLOW_ADMIN_PASS. Set DOWNFLOW_SECRET to keep sessions
+# valid across servers; otherwise a stable secret is derived from the admin login, so sessions survive redeploys.
 
 from __future__ import annotations
 
@@ -27,7 +26,7 @@ _SECRET_FILE = Path(__file__).resolve().parent.parent / "data" / ".secret"
 
 
 def _secret() -> bytes:
-    """Stable across redeploys (Render's disk is wiped): DOWNFLOW_SECRET, else derived from the admin login."""
+    # Stable across redeploys (Render's disk is wiped): DOWNFLOW_SECRET, else derived from the admin login.
     env = os.environ.get("DOWNFLOW_SECRET")
     if env:
         return env.encode()
@@ -60,7 +59,7 @@ def check_credentials(user: str, password: str) -> bool:
     return ok_u and ok_p
 
 
-# -- brute-force guard: 6 failures -> 5 minute lock per IP ---------------------
+# brute-force guard: 6 failures -> 5 minute lock per IP
 _fails: dict[str, list[float]] = {}
 
 

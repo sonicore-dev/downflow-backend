@@ -9,12 +9,14 @@
 .note{color:var(--muted);font-size:13px;margin-top:16px;text-align:center}
 </style></head><body>
 <!--HEADER-->
+
 <main class="page center"><form class="box card" id="f" autocomplete="on"><div class="logo">D</div>
 <h1>Developer sign in</h1><p class="sub">Restricted to SoniCore developers. Sign in to continue.</p>
 <div id="e" class="err hidden" role="alert"></div>
 <div class="f"><label for="u">Username</label><input id="u" name="username" autocomplete="username" required autofocus></div>
 <div class="f"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
 <button class="btn" style="width:100%" id="b">Sign in</button><p class="note">You stay signed in on this device for 30 days.</p></form></main>
+
 <!--FOOTER-->
 <script>
 f.onsubmit=async ev=>{ev.preventDefault();e.classList.add("hidden");b.disabled=true;b.textContent="Signing in…";

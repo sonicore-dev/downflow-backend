@@ -1,15 +1,14 @@
-"""Optional Redis backend so many workers / instances share task state.
-
-Set ``DOWNFLOW_REDIS_URL=redis://host:6379/0`` (``pip install redis``). Without it everything stays in process
-memory, which is right for a single worker. With Redis:
-
-* task status + extraction results are shared, so ``/extract/status`` and ``/download/{task}`` work no matter
-  which worker or instance receives the request,
-* rate limits are global (see helpers/ratelimit.py).
-
-Tasks expire by Redis TTL, so no cleanup job is needed. Calls are blocking, so the API runs them in a thread
-(``manager.blocking`` is True).
-"""
+# Optional Redis backend so many workers / instances share task state.
+#
+# Set ``DOWNFLOW_REDIS_URL=redis://host:6379/0`` (``pip install redis``). Without it everything stays in process
+# memory, which is right for a single worker. With Redis:
+#
+# * task status + extraction results are shared, so ``/extract/status`` and ``/download/{task}`` work no matter
+#   which worker or instance receives the request,
+# * rate limits are global (see helpers/ratelimit.py).
+#
+# Tasks expire by Redis TTL, so no cleanup job is needed. Calls are blocking, so the API runs them in a thread
+# (``manager.blocking`` is True).
 
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ _lock = threading.Lock()
 
 
 def get_redis():
-    """Return a connected redis client or None (cached; logs once why it is unavailable)."""
+    # Return a connected redis client or None (cached; logs once why it is unavailable).
     global _client, _tried
     url = get_config().redis_url
     if not url:
@@ -61,7 +60,7 @@ def _iso(ts: Optional[float]) -> Optional[str]:
 
 
 class RedisStatusManager:
-    """Same interface as StatusManager, state kept in Redis."""
+    # Same interface as StatusManager, state kept in Redis.
 
     blocking = True
 
@@ -70,7 +69,7 @@ class RedisStatusManager:
         self._mine: set[str] = set()
         self._lock = threading.Lock()
 
-    # -- storage helpers
+    # storage helpers
     def _k(self, tid: str) -> str:
         return f"df:task:{tid}"
 
@@ -88,7 +87,7 @@ class RedisStatusManager:
                 "message": d["message"], "created_at": _iso(d["created"]), "updated_at": _iso(d["updated"]),
                 "completed_at": _iso(d["completed"]), "error": d["error"], "history": d["history"]}
 
-    # -- lifecycle
+    # lifecycle
     def create(self) -> dict[str, Any]:
         now = time.time()
         tid = secrets.token_urlsafe(16)
@@ -156,7 +155,7 @@ class RedisStatusManager:
             self._mine.discard(task_id)
         return True
 
-    # -- queries
+    # queries
     def get_status(self, task_id: str) -> Optional[dict[str, Any]]:
         d = self._load(task_id)
         return self._snap(d) if d else None

@@ -1,9 +1,8 @@
-"""Operator configuration for the extraction engine.
-
-All settings come from environment variables (prefix ``DOWNFLOW_``) with
-conservative defaults, so nothing needs editing in source. See README section
-"Extraction engine configuration" for the full list.
-"""
+# Operator configuration for the extraction engine.
+#
+# All settings come from environment variables (prefix ``DOWNFLOW_``) with
+# conservative defaults, so nothing needs editing in source. See README section
+# "Extraction engine configuration" for the full list.
 
 from __future__ import annotations
 
@@ -74,7 +73,7 @@ def _list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _proxy_file() -> tuple[str, ...]:
-    """Read one proxy URL per line from DOWNFLOW_PROXY_FILE (blank lines and # comments ignored)."""
+    # Read one proxy URL per line from DOWNFLOW_PROXY_FILE (blank lines and # comments ignored).
     path = _env("PROXY_FILE")
     if not path:
         return ()
@@ -127,23 +126,14 @@ class ExtractorConfig:
     proxy_cooldown: float = 90.0             # base seconds a blocked/dead proxy is parked (doubles per failure)
     proxy_affinity_ttl: float = 7200.0       # remember which proxy served a URL (IP-bound media links)
     proxy_direct_fallback: bool = True       # connect directly if every configured proxy is unusable
-    cookie_file: Optional[str] = None        # explicit path; default is <cookies_dir>/youtube.txt
-    cookies_dir: str = str(BASE_DIR / "cookies")
-    cookies_from_browser: Optional[str] = None   # yt-dlp spec: BROWSER[+KEYRING][:PROFILE][::CONTAINER]
-    browser_profile_dir: Optional[str] = None    # persistent Chrome/Chromium --user-data-dir
-    browser_name: str = "chromium"
-    browser_keyring: str = "basictext"
-    cookie_source: str = "auto"              # auto | file | browser | none
-    cookie_writeback: bool = True            # keep rotated cookies yt-dlp refreshes during use
-    cookie_check_interval: float = 3600.0    # seconds between live validity checks (0 = off)
     # Anti-bot behaviour
     force_ipv4: bool = True
     sleep_requests: float = 0.5              # pause between extractor requests (seconds)
     sleep_interval: float = 0.0              # pause before each download (yt-dlp --sleep-interval)
     max_sleep_interval: float = 0.0
-    yt_player_clients: tuple[str, ...] = ()  # empty = automatic (cookie-friendly clients when cookies are active)
-    yt_po_token: tuple[str, ...] = ()        # e.g. "web.gvs+XXXX" (see yt-dlp PO Token guide)
-    yt_visitor_data: Optional[str] = None
+    player_clients: tuple[str, ...] = ()  # empty = automatic (cookie-friendly clients when cookies are active)
+    po_token: tuple[str, ...] = ()        # e.g. "web.gvs+XXXX" (see yt-dlp PO Token guide)
+    visitor_data: Optional[str] = None
     pot_url: Optional[str] = None            # bgutil PO-token provider server (default http://127.0.0.1:4416)
     cookie_policy: str = "last"              # last = cookie-less routes first | first | never
     race_width: int = 2                      # max strategies running in parallel (1 = strictly sequential)
@@ -188,11 +178,6 @@ class ExtractorConfig:
     remote_components: tuple[str, ...] = ()  # e.g. "ejs:github" to allow solver download
     verbose: bool = False
 
-    @property
-    def default_cookie_file(self) -> str:
-        """The cookie file in use: DOWNFLOW_COOKIE_FILE, else <cookies_dir>/youtube.txt."""
-        return self.cookie_file or str(Path(self.cookies_dir).expanduser() / "youtube.txt")
-
     @classmethod
     def from_env(cls) -> "ExtractorConfig":
         d = cls()
@@ -220,22 +205,13 @@ class ExtractorConfig:
             proxy_cooldown=_float("PROXY_COOLDOWN", d.proxy_cooldown, 5, 1800),
             proxy_affinity_ttl=_float("PROXY_AFFINITY_TTL", d.proxy_affinity_ttl, 60, 86400),
             proxy_direct_fallback=_bool("PROXY_DIRECT_FALLBACK", d.proxy_direct_fallback),
-            cookie_file=_env("COOKIE_FILE"),
-            cookies_dir=_env("COOKIES_DIR") or d.cookies_dir,
-            cookies_from_browser=_env("COOKIES_FROM_BROWSER"),
-            browser_profile_dir=_env("BROWSER_PROFILE_DIR"),
-            browser_name=(_env("BROWSER_NAME") or d.browser_name).lower(),
-            browser_keyring=(_env("BROWSER_KEYRING") or d.browser_keyring).lower(),
-            cookie_source=(_env("COOKIE_SOURCE") or d.cookie_source).lower(),
-            cookie_writeback=_bool("COOKIE_WRITEBACK", d.cookie_writeback),
-            cookie_check_interval=_float("COOKIE_CHECK_INTERVAL", d.cookie_check_interval, 0, 86400),
             force_ipv4=_bool("FORCE_IPV4", d.force_ipv4),
             sleep_requests=_float("SLEEP_REQUESTS", d.sleep_requests, 0, 10),
             sleep_interval=_float("SLEEP_INTERVAL", d.sleep_interval, 0, 60),
             max_sleep_interval=_float("MAX_SLEEP_INTERVAL", d.max_sleep_interval, 0, 120),
-            yt_player_clients=_list("YT_PLAYER_CLIENTS", d.yt_player_clients),
-            yt_po_token=_list("YT_PO_TOKEN", d.yt_po_token),
-            yt_visitor_data=_env("YT_VISITOR_DATA"),
+            player_clients=_list("PLAYER_CLIENTS", d.player_clients),
+            po_token=_list("PO_TOKEN", d.po_token),
+            visitor_data=_env("VISITOR_DATA"),
             pot_url=_env("POT_URL"),
             cookie_policy=(_env("COOKIE_POLICY") or d.cookie_policy).lower(),
             race_width=_int("RACE_WIDTH", d.race_width, 1, 4),
@@ -280,5 +256,5 @@ class ExtractorConfig:
 
 @lru_cache(maxsize=1)
 def get_config() -> ExtractorConfig:
-    """Return the process-wide configuration (read once from the environment)."""
+    # Return the process-wide configuration (read once from the environment).
     return ExtractorConfig.from_env()

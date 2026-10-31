@@ -2,7 +2,7 @@
 # Downflow backend + bgutil PO-token provider in one image (works on Render "Docker" services).
 ARG BGUTIL_VERSION=2.0.2
 
-# --- build the PO token provider server (must match the pip plugin version) --------------------
+# build the PO token provider server (must match the pip plugin version)
 FROM node:22-slim AS pot
 ARG BGUTIL_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ pkg-config \
@@ -12,26 +12,26 @@ RUN git clone --depth 1 --branch "${BGUTIL_VERSION}" https://github.com/Brainici
 WORKDIR /src/server
 RUN npm ci && npx tsc && npm prune --omit=dev
 
-# --- runtime -----------------------------------------------------------------------------------
+# runtime
 FROM python:3.12-slim
 ARG BGUTIL_VERSION
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     DOWNFLOW_AUTO_UPDATE=stable \
     DOWNFLOW_POT_SERVER=1 \
-    DOWNFLOW_COLOR=1
+    DOWNFLOW_COLOR=1 \
+    DOWNFLOW_HOST=0.0.0.0
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates \
         libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 \
     && rm -rf /var/lib/apt/lists/*
-# Node doubles as the JavaScript runtime yt-dlp needs for YouTube signature/n-challenge solving.
+# Node doubles as the JavaScript runtime yt-dlp needs for signature/n-challenge solving.
 COPY --from=pot /usr/local/bin/node /usr/local/bin/node
 COPY --from=pot /src/server /opt/bgutil/server
 
 WORKDIR /app
 COPY requirements.txt .
-COPY requirements-prod.txt .
-RUN pip install -r requirements.txt -r requirements-prod.txt "bgutil-ytdlp-pot-provider==${BGUTIL_VERSION}"
+RUN pip install -r requirements.txt "bgutil-ytdlp-pot-provider==${BGUTIL_VERSION}"
 COPY . .
-RUN chmod +x start.sh && mkdir -p data cookies
+RUN mkdir -p data cookies
 EXPOSE 8000
 HEALTHCHECK --interval=60s --timeout=5s --start-period=40s CMD curl -fs "http://127.0.0.1:${PORT:-8000}/" >/dev/null || exit 1
-CMD ["./start.sh"]
+CMD ["sh", "-c", "if [ \"${DOWNFLOW_POT_SERVER:-0}\" = \"1\" ] && [ -f /opt/bgutil/server/build/main.js ]; then (cd /opt/bgutil/server && node build/main.js --port 4416 >/tmp/pot-server.log 2>&1 &); export DOWNFLOW_POT_URL=\"${DOWNFLOW_POT_URL:-http://127.0.0.1:4416}\"; fi; exec python main.py"]

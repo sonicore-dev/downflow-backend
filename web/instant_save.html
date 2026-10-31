@@ -33,6 +33,7 @@
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style></head><body>
 <!--HEADER-->
+
 <main class="page narrow">
 <div class="ph"><h1>Instant Save</h1><p>One tap. Copy a video link, press the circle, and the best quality starts downloading by itself. Need to choose the format? Use <a href="/download/">Proper Save</a>.</p></div>
 <div class="wrap">
@@ -48,6 +49,7 @@
  <p class="hint">Tip: you can also press <b>Ctrl+V</b> (or paste) anywhere on this page. Instant Save takes one video, never a whole playlist, and tries up to 3 times automatically.</p>
 </div>
 </main>
+
 <!--FOOTER-->
 <script>
 (function () {
@@ -99,7 +101,6 @@
     throw { message: err.message || ("Request failed (" + r.status + ")"), code: err.code || "" };
   }
 
-  // Starts the browser download in a hidden frame. An error page loading in the frame means the start failed.
   function startDownload(href, onLateError) {
     return new Promise(function (resolve) {
       var f = document.createElement("iframe"), settled = false, t;
@@ -126,7 +127,7 @@
         lastErr = { message: "The download could not start" };
         await sleep(350 * (i + 1));
       } catch (e) {
-        lastErr = e; break;                      // the server already retried the extraction 3 times
+        lastErr = e; break;
       }
     }
     busy = false;

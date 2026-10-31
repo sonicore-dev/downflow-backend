@@ -1,14 +1,13 @@
-"""Thread-safe, in-memory tracking of extraction tasks.
-
-Each extraction gets a unique ``task_id`` the frontend can poll. Progress is
-reported by *stage*; ``progress`` stays ``None`` because yt-dlp gives no
-reliable percentage while extracting metadata, and numbers are never invented.
-
-NOTE: state lives in this process only. With several workers or instances (for
-example ``uvicorn --workers 4`` or multiple replicas) a status request can land
-on a process that never saw the task and returns 404. Multi-worker deployments
-need shared storage such as Redis behind the same interface.
-"""
+# Thread-safe, in-memory tracking of extraction tasks.
+#
+# Each extraction gets a unique ``task_id`` the frontend can poll. Progress is
+# reported by *stage*; ``progress`` stays ``None`` because yt-dlp gives no
+# reliable percentage while extracting metadata, and numbers are never invented.
+#
+# NOTE: state lives in this process only. With several workers or instances (for
+# example ``uvicorn --workers 4`` or multiple replicas) a status request can land
+# on a process that never saw the task and returns 404. Multi-worker deployments
+# need shared storage such as Redis behind the same interface.
 
 from __future__ import annotations
 
@@ -89,7 +88,7 @@ class _Task:
 
 
 class StatusManager:
-    """Registry of extraction tasks with expiry and a size cap."""
+    # Registry of extraction tasks with expiry and a size cap.
 
     def __init__(self, ttl: float = 900.0, max_tasks: int = 500) -> None:
         self.ttl = ttl
@@ -98,7 +97,7 @@ class StatusManager:
         self._lock = threading.RLock()
         self._last_cleanup = time.monotonic()
 
-    # -- lifecycle ---------------------------------------------------------
+    # lifecycle
     def create(self) -> dict[str, Any]:
         with self._lock:
             self._maybe_cleanup(force=len(self._tasks) >= self.max_tasks)
@@ -111,7 +110,7 @@ class StatusManager:
 
     def update(self, task_id: str, *, status: Optional[str] = None, stage: Optional[str] = None,
                message: Optional[str] = None, progress: Any = _UNSET) -> bool:
-        """Update a non-finished task. Returns False if unknown or already finished."""
+        # Update a non-finished task. Returns False if unknown or already finished.
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None or task.status in TaskStatus.TERMINAL:
@@ -147,7 +146,7 @@ class StatusManager:
             return True
 
     def fail(self, task_id: str, error: dict[str, Any]) -> bool:
-        """Mark failed with a sanitised error (only known keys are kept)."""
+        # Mark failed with a sanitised error (only known keys are kept).
         clean = {
             "code": str(error.get("code", "internal_error"))[:60],
             "message": sanitize_text(str(error.get("message", "Extraction failed")), 300),
@@ -168,7 +167,7 @@ class StatusManager:
                                  "message": task.message, "at": _iso(now)})
             return True
 
-    # -- queries -----------------------------------------------------------
+    # queries
     def get_status(self, task_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             self._maybe_cleanup()
@@ -176,7 +175,7 @@ class StatusManager:
             return task.snapshot() if task else None
 
     def get_result(self, task_id: str) -> Optional[tuple[dict[str, Any], Optional[dict[str, Any]]]]:
-        """Return ``(status_snapshot, result)`` or None if unknown/expired."""
+        # Return ``(status_snapshot, result)`` or None if unknown/expired.
         with self._lock:
             self._maybe_cleanup()
             task = self._tasks.get(task_id)
@@ -193,7 +192,7 @@ class StatusManager:
             return len(self._tasks)
 
     def summary(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Recent tasks (newest first) without their result payloads."""
+        # Recent tasks (newest first) without their result payloads.
         with self._lock:
             tasks = sorted(self._tasks.values(), key=lambda t: t.created, reverse=True)[:limit]
             out = []
@@ -205,15 +204,15 @@ class StatusManager:
                             "url": r.get("input_url"), "error": (t.error or {}).get("code") if t.error else None})
             return out
 
-    # -- housekeeping ------------------------------------------------------
+    # housekeeping
     def fail_active(self, error: dict[str, Any]) -> int:
-        """Fail every unfinished task (used on shutdown)."""
+        # Fail every unfinished task (used on shutdown).
         with self._lock:
             ids = [t.task_id for t in self._tasks.values() if t.status not in TaskStatus.TERMINAL]
         return sum(1 for i in ids if self.fail(i, error))
 
     def cleanup(self) -> int:
-        """Drop expired tasks, then oldest finished tasks beyond ``max_tasks``."""
+        # Drop expired tasks, then oldest finished tasks beyond ``max_tasks``.
         with self._lock:
             now = time.time()
             removed = 0
@@ -243,7 +242,7 @@ _manager_lock = threading.Lock()
 
 
 def get_status_manager():
-    """The process-wide task registry: Redis-backed when DOWNFLOW_REDIS_URL works, else in memory."""
+    # The process-wide task registry: Redis-backed when DOWNFLOW_REDIS_URL works, else in memory.
     global _manager
     with _manager_lock:
         if _manager is None:

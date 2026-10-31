@@ -1,4 +1,4 @@
-"""Bounded retry with exponential backoff for transient extraction failures."""
+# Bounded retry with exponential backoff for transient extraction failures.
 
 from __future__ import annotations
 
@@ -44,11 +44,10 @@ def run_with_retries(
     sleep: Callable[[float], None] = time.sleep,
     on_retry: Optional[Callable[[ExtractionError, int, float], None]] = None,
 ) -> T:
-    """Call ``func`` retrying transient errors within ``policy`` and ``deadline``.
-
-    ``deadline`` is an absolute ``time.monotonic()`` value; no retry is started
-    if its backoff would run past it.
-    """
+    # Call ``func`` retrying transient errors within ``policy`` and ``deadline``.
+    #
+    # ``deadline`` is an absolute ``time.monotonic()`` value; no retry is started
+    # if its backoff would run past it.
     attempt = 0
     while True:
         attempt += 1

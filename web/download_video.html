@@ -85,6 +85,7 @@
 </head>
 <body>
 <!--HEADER-->
+
 <main class="page">
     <div class="ph"><h1>Proper Save</h1><p>Paste a video link, choose quality and format, and save the file straight to your device. Want it in one tap? Try <a href="/instant/">Instant Save</a>.</p></div>
 
@@ -413,10 +414,9 @@
         }
     }
 
-    // ---- live task handling -------------------------------------------------
     var API = "/api/v1/extract/";
     var POLL_MS = 1000, MAX_POLL_MS = 10 * 60 * 1000, MAX_NET_FAILS = 4;
-    var poll = null;       // { timer, id, started, fails }
+    var poll = null;
     var lastResponse = null;
     var currentTask = null;
     var DL = "/api/v1/download/";
@@ -432,7 +432,7 @@
     function isAudioSel(d) { var st = (d.media && d.media.streams) || []; return st.length > 0 && st.every(function (x) { return x.role === "audio"; }); }
     document.addEventListener("click", function (e) {
         var a = e.target.closest && e.target.closest("a.btn[data-kind]");
-        if (a) a.href = dlHref(a.dataset.fid, a.dataset.kind);   // pick up the latest output options
+        if (a) a.href = dlHref(a.dataset.fid, a.dataset.kind);
     }, true);
 
     function stopPolling() { if (poll) { clearTimeout(poll.timer); poll = null; } }
@@ -455,7 +455,7 @@
         if (st.status === "completed") bar.className = "bar done";
         else if (st.status === "failed") bar.className = "bar failed";
         else if (typeof st.progress === "number") { bar.className = "bar"; bar.firstElementChild.style.width = Math.round(st.progress * 100) + "%"; }
-        else bar.className = "bar indeterminate";   // progress is null: no percentage is available
+        else bar.className = "bar indeterminate";
 
         var list = $("stages"); list.textContent = "";
         (st.history || []).forEach(function (h, i, arr) {
@@ -494,7 +494,7 @@
     }
 
     function pollStatus(id) {
-        if (!poll || poll.id !== id) return;   // superseded by a newer task
+        if (!poll || poll.id !== id) return;
         fetch(API + "status/" + encodeURIComponent(id) + "/", { headers: { "Accept": "application/json" }, cache: "no-store" })
             .then(function (r) { return r.json().catch(function () { return null; }).then(function (b) { return { r: r, b: b }; }); })
             .then(function (x) {
